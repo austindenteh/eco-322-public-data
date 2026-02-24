@@ -1,2 +1,4 @@
 *.dta
 *.rds
+.Rproj.user
+.DS_Store
