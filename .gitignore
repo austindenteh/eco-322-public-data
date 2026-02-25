@@ -2,3 +2,16 @@
 *.rds
 .Rproj.user
 .DS_Store
+/*/legacy
+/*/data
+*.XPT
+*.gz
+*.exe
+*.log
+*.DAT
+CLAUDE.md
+Data-Overview-for-Term-Paper-with-Starter-Repository-Notes.Rmd
+*.sas7bdat
+*.Rhistory
+*.Rproj
+*.csv

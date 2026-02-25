@@ -22,7 +22,7 @@ library(broom)
 # 1. DEFINE PATHS
 # ============================================================================
 
-yrbs_root <- "/Users/audenteh/Library/CloudStorage/GoogleDrive-audenteh@davidson.edu/My Drive/davidson/econ_322/spring_2026/data_overview_for_studentss/yrbs"
+yrbs_root <- "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/yrbs"
 
 in_rds  <- file.path(yrbs_root, "output", "yrbs_combined.rds")
 out_rds <- file.path(yrbs_root, "output", "yrbs_clean.rds")

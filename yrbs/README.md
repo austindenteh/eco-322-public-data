@@ -2,6 +2,8 @@
 
 Starter code and documentation for working with the YRBS combined dataset (national + state + district), 1991–2023.
 
+> **📥 Data download required.** The raw data files are too large for GitHub. Download them from the [shared Dropbox folder](https://www.dropbox.com/scl/fo/hxal7xxtckhx2qw6bnyn7/ABbzlW6jzq1pcYHClOA-aPk?rlkey=zsy1ad8wvcno2ag8m8lbe88vz&st=d4fp20qg&dl=0) and place the contents in `data/raw/`. See [Step 1](#step-1-obtain-the-data) for details.
+
 ## Overview
 
 The Youth Risk Behavior Surveillance System (YRBSS), commonly called the **YRBS**, is a biennial school-based survey conducted by the CDC's Division of Adolescent and School Health (DASH). It monitors priority health-risk behaviors among high school students (grades 9–12) in the United States.
@@ -71,8 +73,15 @@ yrbs/
 
 ### Step 1: Obtain the Data
 
-The raw CDC SAS files should already be in `data/raw/`. If you need to download them:
+The raw data files are too large for GitHub and must be downloaded separately.
 
+**Option A — Dropbox (recommended):**
+Download all data files from the shared folder:
+https://www.dropbox.com/scl/fo/hxal7xxtckhx2qw6bnyn7/ABbzlW6jzq1pcYHClOA-aPk?rlkey=zsy1ad8wvcno2ag8m8lbe88vz&st=d4fp20qg&dl=0
+
+Place the contents in `data/raw/`.
+
+**Option B — CDC website:**
 1. Go to https://www.cdc.gov/yrbs/data/index.html
 2. Select "Combined Datasets" under "YRBS Data Files and Documentation"
 3. Download the SAS data files for national, state, and district (high school)

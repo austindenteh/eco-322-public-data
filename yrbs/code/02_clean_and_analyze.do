@@ -21,7 +21,7 @@ set maxvar 10000
 * 1. DEFINE PATHS
 * ============================================================================
 
-global yrbs_root "/Users/audenteh/Library/CloudStorage/GoogleDrive-audenteh@davidson.edu/My Drive/davidson/econ_322/spring_2026/data_overview_for_studentss/yrbs"
+global yrbs_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/yrbs"
 cd "$yrbs_root"
 
 local in_dta   "output/yrbs_combined.dta"
