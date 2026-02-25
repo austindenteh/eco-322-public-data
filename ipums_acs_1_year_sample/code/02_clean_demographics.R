@@ -5,10 +5,9 @@
 #          (1) Demographics: race/ethnicity, sex, age, marital status
 #          (2) Education: years of education, degree indicators
 #          (3) Employment and income
-#          (4) Health insurance
-#          (5) Immigration and citizenship
-#          (6) Poverty and public assistance
-#          (7) Descriptive statistics and simple regressions
+#          (4) Health insurance (if available; 2008+ only)
+#          (5) Immigration and citizenship (if available)
+#          (6) Descriptive statistics and simple regressions
 #
 # Input:   [acs_root]/output/acs_working.rds  (from 01_load_and_subset.R)
 # Output:  Descriptive statistics and regression output to console
@@ -22,6 +21,10 @@
 # Notes:   This is a STARTER script. It demonstrates how to clean key
 #          variables. Users should extend this for their own analysis.
 #          Variable coding follows the Kuka et al. (2020) replication code.
+#
+#          The script uses variables that are standard in most IPUMS ACS
+#          extracts. Health insurance and immigration sections are guarded
+#          since those variables may not be in every extract.
 #
 # Author:  Austin Denteh (adapted from Kuka et al. 2020 replication code)
 # Date:    February 2026
@@ -38,6 +41,19 @@ acs_root <- "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco
 
 acs <- readRDS(file.path(acs_root, "output", "acs_working.rds"))
 cat(sprintf("Loaded %s observations.\n", format(nrow(acs), big.mark = ",")))
+
+# --- Quick check: core variables ---
+# These should be in any IPUMS ACS extract. If missing, the extract
+# may need to be recreated with more variables selected.
+core_vars <- c("year", "age", "sex", "race", "hispan", "educd",
+               "empstat", "incwage", "poverty")
+missing_core <- core_vars[!core_vars %in% names(acs)]
+if (length(missing_core) > 0) {
+  warning("The following core variables are not in your extract: ",
+          paste(missing_core, collapse = ", "),
+          "\nSome sections below may produce errors.",
+          "\nConsider creating a new IPUMS extract that includes these variables.")
+}
 
 # ============================================================================
 # 2. DEMOGRAPHICS: RACE AND ETHNICITY
@@ -72,7 +88,6 @@ print(as.data.frame(race_tab), row.names = FALSE)
 acs <- acs %>%
   mutate(
     female   = as.integer(sex == 2),
-    married  = as.integer(marst %in% c(1, 2)),
     age_18_24 = as.integer(age >= 18 & age <= 24),
     age_25_34 = as.integer(age >= 25 & age <= 34),
     age_35_44 = as.integer(age >= 35 & age <= 44),
@@ -81,14 +96,16 @@ acs <- acs %>%
     age_65plus = as.integer(age >= 65)
   )
 
+# Marital status (may not be in every extract)
+if ("marst" %in% names(acs)) {
+  acs <- acs %>% mutate(married = as.integer(marst %in% c(1, 2)))
+}
+
 cat("\n--- Age distribution ---\n")
 print(summary(acs$age))
 
 cat("\n--- Sex ---\n")
 print(table(Female = acs$female))
-
-cat("\n--- Marital status ---\n")
-print(table(Married = acs$married))
 
 # ============================================================================
 # 4. EDUCATION
@@ -171,120 +188,104 @@ cat("\n--- Wage income (conditional on positive) ---\n")
 print(summary(acs$wage[acs$wage > 0]))
 
 # ============================================================================
-# 7. HEALTH INSURANCE
+# 7. HEALTH INSURANCE (if available)
 # ============================================================================
 # hcovany: 1 = no coverage, 2 = with coverage (available 2008+)
+# These variables may not be in every extract.
 
-acs <- acs %>%
-  mutate(
-    any_insurance = as.integer(hcovany == 2),
-    priv_ins      = as.integer(hcovpriv == 2),
-    pub_ins       = as.integer(hcovpub == 2),
-    medicaid      = as.integer(hinscaid == 2),
-    medicare      = as.integer(hinscare == 2),
-    uninsured     = as.integer(hcovany == 1)
-  )
+if ("hcovany" %in% names(acs)) {
 
-cat("\n--- Health insurance (2008+) ---\n")
-ins_tab <- acs %>% filter(year >= 2008) %>%
-  summarize(any_ins = mean(any_insurance, na.rm = TRUE),
-            private = mean(priv_ins, na.rm = TRUE),
-            public  = mean(pub_ins, na.rm = TRUE),
-            unins   = mean(uninsured, na.rm = TRUE),
-            n = n())
-print(as.data.frame(ins_tab), row.names = FALSE)
+  acs <- acs %>%
+    mutate(
+      any_insurance = as.integer(hcovany == 2),
+      uninsured     = as.integer(hcovany == 1)
+    )
 
-# ============================================================================
-# 8. IMMIGRATION AND CITIZENSHIP
-# ============================================================================
+  if ("hcovpriv" %in% names(acs)) acs$priv_ins <- as.integer(acs$hcovpriv == 2)
+  if ("hcovpub"  %in% names(acs)) acs$pub_ins  <- as.integer(acs$hcovpub == 2)
+  if ("hinscaid" %in% names(acs)) acs$medicaid  <- as.integer(acs$hinscaid == 2)
+  if ("hinscare" %in% names(acs)) acs$medicare  <- as.integer(acs$hinscare == 2)
 
-acs <- acs %>%
-  mutate(
-    # Citizenship (citizen: 0=N/A, 1=born abroad US parents, 2=naturalized,
-    #              3=not citizen, 4=born in US, 5=born in territories)
-    noncitizen  = ifelse(citizen == 0, NA, as.integer(citizen == 3)),
-    usborn      = ifelse(citizen == 0, NA, as.integer(citizen %in% c(4, 5))),
-    naturalized = ifelse(citizen == 0, NA, as.integer(citizen == 2)),
-    # Birthplace regions
-    bpl_us      = as.integer(bpl >= 1 & bpl <= 120),
-    bpl_mexico  = as.integer(bpl == 200),
-    bpl_centam  = as.integer(bpl >= 210 & bpl <= 300),
-    bpl_asia    = as.integer(bpl >= 500 & bpl < 600),
-    bpl_europe  = as.integer(bpl >= 400 & bpl < 500),
-    bpl_africa  = as.integer(bpl >= 800 & bpl < 900),
-    # Year and age at immigration
-    ageimmig = ifelse(yrimmig > 0, yrimmig - birthyr, NA),
-    # Language
-    english   = as.integer(language == 1),
-    spanish   = as.integer(language == 12),
-    nonfluent = as.integer(speakeng %in% c(1, 6))
-  ) %>%
-  mutate(ageimmig = ifelse(!is.na(ageimmig) & ageimmig < 0, NA, ageimmig))
+  cat("\n--- Health insurance (2008+) ---\n")
+  ins_tab <- acs %>% filter(year >= 2008) %>%
+    summarize(any_ins = mean(any_insurance, na.rm = TRUE),
+              unins   = mean(uninsured, na.rm = TRUE),
+              n = n())
+  print(as.data.frame(ins_tab), row.names = FALSE)
 
-cat("\n--- Citizenship ---\n")
-cit_tab <- acs %>%
-  summarize(usborn = mean(usborn, na.rm = TRUE),
-            naturalized = mean(naturalized, na.rm = TRUE),
-            noncitizen = mean(noncitizen, na.rm = TRUE),
-            n = sum(!is.na(noncitizen)))
-print(as.data.frame(cit_tab), row.names = FALSE)
-
-cat("\n--- Birthplace region ---\n")
-bpl_tab <- acs %>%
-  summarize(us = mean(bpl_us), mexico = mean(bpl_mexico),
-            centam = mean(bpl_centam), asia = mean(bpl_asia),
-            europe = mean(bpl_europe))
-print(as.data.frame(bpl_tab), row.names = FALSE)
+} else {
+  cat("\n[SKIP] Health insurance: hcovany not in extract.\n")
+}
 
 # ============================================================================
-# 9. PUBLIC ASSISTANCE
+# 8. IMMIGRATION AND CITIZENSHIP (if available)
 # ============================================================================
 
-acs <- acs %>%
-  mutate(foodstamp = as.integer(foodstmp == 2))
+if ("citizen" %in% names(acs)) {
+  acs <- acs %>%
+    mutate(
+      noncitizen  = ifelse(citizen == 0, NA, as.integer(citizen == 3)),
+      usborn      = ifelse(citizen == 0, NA, as.integer(citizen %in% c(4, 5))),
+      naturalized = ifelse(citizen == 0, NA, as.integer(citizen == 2))
+    )
+  cat("\n--- Citizenship ---\n")
+  cit_tab <- acs %>%
+    summarize(usborn = mean(usborn, na.rm = TRUE),
+              naturalized = mean(naturalized, na.rm = TRUE),
+              noncitizen = mean(noncitizen, na.rm = TRUE),
+              n = sum(!is.na(noncitizen)))
+  print(as.data.frame(cit_tab), row.names = FALSE)
+} else {
+  cat("\n[SKIP] Citizenship: citizen not in extract.\n")
+}
 
-cat("\n--- Food stamps/SNAP ---\n")
-cat(sprintf("  Receiving SNAP: %.1f%%\n", mean(acs$foodstamp, na.rm = TRUE) * 100))
+if ("bpl" %in% names(acs)) {
+  acs <- acs %>%
+    mutate(
+      bpl_us      = as.integer(bpl >= 1 & bpl <= 120),
+      bpl_mexico  = as.integer(bpl == 200),
+      bpl_centam  = as.integer(bpl >= 210 & bpl <= 300),
+      bpl_asia    = as.integer(bpl >= 500 & bpl < 600),
+      bpl_europe  = as.integer(bpl >= 400 & bpl < 500)
+    )
+}
 
 # ============================================================================
-# 10. DESCRIPTIVE STATISTICS
+# 9. DESCRIPTIVE STATISTICS
 # ============================================================================
 
 cat("\n============================================\n")
 cat("   DESCRIPTIVE STATISTICS\n")
 cat("============================================\n")
 
-# --- 10a. Summary of key variables ---
 cat("\n--- Key demographic variables ---\n")
-demo_vars <- c("female", "age", "married", "hisp", "white", "black", "asian")
-print(summary(acs[demo_vars]))
+print(summary(acs[c("female", "age", "hisp", "white", "black", "asian")]))
 
 cat("\n--- Education variables ---\n")
-ed_vars <- c("yrsed", "hs", "some_college", "college")
-print(summary(acs[ed_vars]))
+print(summary(acs[c("yrsed", "hs", "some_college", "college")]))
 
 cat("\n--- Employment and income ---\n")
-econ_vars <- c("employed", "in_lf", "wage", "inpov", "finc_to_pov")
-print(summary(acs[econ_vars]))
+print(summary(acs[c("employed", "in_lf", "wage", "inpov", "finc_to_pov")]))
 
-# --- 10b. Insurance trends by year ---
-cat("\n--- Uninsured rate by year (2008+) ---\n")
-ins_trend <- acs %>% filter(year >= 2008) %>%
-  group_by(year) %>%
-  summarize(uninsured_rate = mean(uninsured, na.rm = TRUE),
-            n = n(), .groups = "drop")
-print(as.data.frame(ins_trend), row.names = FALSE)
+# --- Insurance trends by year ---
+if ("uninsured" %in% names(acs)) {
+  cat("\n--- Uninsured rate by year (2008+) ---\n")
+  ins_trend <- acs %>% filter(year >= 2008) %>%
+    group_by(year) %>%
+    summarize(uninsured_rate = mean(uninsured, na.rm = TRUE),
+              n = n(), .groups = "drop")
+  print(as.data.frame(ins_trend), row.names = FALSE)
 
-# --- 10c. Uninsured by race/ethnicity ---
-cat("\n--- Uninsured rate by race/ethnicity (2008+) ---\n")
-ins_race <- acs %>% filter(year >= 2008) %>%
-  group_by(race_eth) %>%
-  summarize(uninsured_rate = mean(uninsured, na.rm = TRUE),
-            n = n(), .groups = "drop")
-print(as.data.frame(ins_race), row.names = FALSE)
+  cat("\n--- Uninsured rate by race/ethnicity (2008+) ---\n")
+  ins_race <- acs %>% filter(year >= 2008) %>%
+    group_by(race_eth) %>%
+    summarize(uninsured_rate = mean(uninsured, na.rm = TRUE),
+              n = n(), .groups = "drop")
+  print(as.data.frame(ins_race), row.names = FALSE)
+}
 
 # ============================================================================
-# 11. EXAMPLE REGRESSION
+# 10. EXAMPLE REGRESSION
 # ============================================================================
 # Simple OLS: uninsured = f(demographics, education)
 # This is just a demonstration -- not a causal model.
@@ -293,36 +294,49 @@ cat("\n============================================\n")
 cat("   EXAMPLE REGRESSION\n")
 cat("============================================\n")
 
-cat("\n--- OLS: Uninsured on demographics (2008+, ages 18-64) ---\n")
+if ("uninsured" %in% names(acs)) {
 
-reg_data <- acs %>%
-  filter(year >= 2008, age >= 18, age <= 64,
-         !is.na(uninsured), !is.na(race_eth), !is.na(hs),
-         !is.na(college), !is.na(noncitizen))
+  cat("\n--- OLS: Uninsured on demographics (2008+, ages 18-64) ---\n")
 
-fit <- lm(uninsured ~ female + age + factor(race_eth) + hs + college +
-             married + noncitizen + factor(year),
-           data = reg_data, weights = perwt)
-print(summary(fit))
+  reg_data <- acs %>%
+    filter(year >= 2008, age >= 18, age <= 64,
+           !is.na(uninsured), !is.na(race_eth), !is.na(hs),
+           !is.na(college))
+
+  fit <- lm(uninsured ~ female + age + factor(race_eth) + hs + college +
+               factor(year),
+             data = reg_data, weights = perwt)
+  print(summary(fit))
+
+} else {
+  cat("\n[SKIP] Insurance regression requires hcovany in extract.\n")
+  cat("  Alternative: try a wage regression:\n")
+  cat("    lm(wage ~ female + age + factor(race_eth) + hs + college, data = acs, weights = perwt)\n")
+}
 
 cat("\n============================================\n")
 cat("   CLEANING COMPLETE\n")
 cat("============================================\n")
-cat("Variables created: race_eth, female, married, yrsed, hs,\n")
-cat("  some_college, college, employed, in_lf, wage, inpov,\n")
-cat("  any_insurance, uninsured, noncitizen, usborn, and more.\n")
+cat("Variables created: race_eth, female, yrsed, hs, college,\n")
+cat("  employed, in_lf, wage, inpov, and more.\n")
 cat("\nThis is a starter script -- extend for your own analysis.\n")
 
 ################################################################################
 # NOTES:
 #
-# 1. SAMPLE RESTRICTIONS:
+# 1. CUSTOM EXTRACTS:
+#    The core sections (demographics, education, employment, income) use
+#    variables that are standard in most IPUMS ACS extracts. Health
+#    insurance and immigration sections are lightly guarded since those
+#    variables may not be in every extract.
+#
+# 2. SAMPLE RESTRICTIONS:
 #    This script does not restrict the sample. For specific analyses:
 #    - Working-age adults: filter(age >= 18, age <= 64)
 #    - Children: filter(age < 18)
 #    - Non-institutionalized: filter(!gq %in% c(3, 4))
 #
-# 2. SURVEY WEIGHTS:
+# 3. SURVEY WEIGHTS:
 #    Always use perwt for person-level estimates:
 #      lm(..., weights = perwt)
 #    For proper standard errors, use the survey package:
@@ -331,25 +345,16 @@ cat("\nThis is a starter script -- extend for your own analysis.\n")
 #                       weights = ~perwt, data = acs)
 #      svyglm(uninsured ~ female + age, design = des)
 #
-# 3. EDUCATION CODING:
+# 4. EDUCATION CODING:
 #    The yrsed variable follows the Kuka et al. mapping from IPUMS
 #    detailed education codes (educd). Some rare categories may be
 #    unmapped (yrsed will be NA for those observations).
 #
-# 4. INSURANCE VARIABLES:
+# 5. INSURANCE VARIABLES:
 #    Health insurance variables (hcovany, hcovpriv, hcovpub, etc.)
 #    are only available from 2008 onwards.
 #
-# 5. IMMIGRATION:
+# 6. IMMIGRATION:
 #    - citizen == 3 identifies non-citizens
-#    - yrimmig gives year of immigration (0 = born in US)
 #    - bpl gives detailed birthplace codes
-#
-# 6. COMMON RESEARCH APPLICATIONS:
-#    - Insurance coverage (ACA effects, Medicaid expansion)
-#    - Immigration (DACA, citizenship status, assimilation)
-#    - Education attainment and returns to education
-#    - Labor market outcomes (employment, wages)
-#    - Poverty and public assistance
-#    - Disability and health
 ################################################################################

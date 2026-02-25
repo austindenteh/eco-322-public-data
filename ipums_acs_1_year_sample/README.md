@@ -2,6 +2,9 @@
 
 Starter code and documentation for working with the ACS 1-year samples via IPUMS USA, 2006--2024.
 
+> **📥 Data files are too large for GitHub.** Download pre-built extracts from the shared Dropbox folder, or create your own extract from IPUMS:
+> **[Dropbox: IPUMS ACS Data](https://www.dropbox.com/scl/fo/ds69nbylyp6582opynk3w/AIOmznaVTgjnjtcNY7rSFsw?rlkey=ctrwg26u0c2z6prjwz4llnx5a&st=6hts8sht&dl=0)**
+
 ## Overview
 
 The **American Community Survey (ACS)** is an annual survey conducted by the U.S. Census Bureau that replaced the decennial census long form. The **1-year samples** provide cross-sectional data for areas with populations of 65,000 or more.
@@ -24,11 +27,19 @@ The **American Community Survey (ACS)** is an annual survey conducted by the U.S
 The data was extracted from **IPUMS USA** (University of Minnesota):
 - https://usa.ipums.org/usa/
 
-**Extract details:**
-- Extract: `usa_00001`
-- Format: Stata (.dta.gz, compressed)
-- Samples: ACS 1-year, 2006--2024 (also includes 1970--2000 census samples, which are dropped by the starter scripts)
-- File size: approx. 12 GB compressed
+**Pre-built extracts on Dropbox:**
+
+The Dropbox folder contains several extract options of varying size. Pick the one that fits your needs:
+
+| File | Years | Approx. Size | Best For |
+|---|---|---|---|
+| `usa_00001_2006_2024.dta` | 2006--2024 | 45 GB | Full time series, long-run trends |
+| `usa_00002_2020_2024.dta` | 2020--2024 | 17 GB | Recent years, moderate size |
+| `usa_00003_2023_2024.dta` | 2023--2024 | 11 GB | Quick start, smallest download |
+
+These pre-built extracts include a comprehensive set of variables (demographics, education, employment, income, health insurance, immigration, disability, housing, and more).
+
+**Using your own IPUMS extract:** You can also create a custom extract at [IPUMS USA](https://usa.ipums.org/usa/) with only the variables and years you need. This is recommended if you want a smaller file or need variables not in the pre-built extracts. The starter scripts auto-detect whichever `.dta` or `.dta.gz` file you place in `data/raw/`.
 
 ## Directory Structure
 
@@ -41,7 +52,7 @@ ipums_acs_1_year_sample/
 │   ├── 02_clean_demographics.do       ← Clean variables, descriptive stats (Stata)
 │   └── 02_clean_demographics.R        ← Same in R
 ├── data/
-│   └── raw/                           ← usa_00001.dta.gz (IPUMS extract)
+│   └── raw/                           ← Place your .dta or .dta.gz file(s) here
 ├── docs/                              ← Codebook, XML metadata, COVID-19 guidance
 │   ├── usa_00001.cbk
 │   ├── usa_00001.xml
@@ -53,14 +64,22 @@ ipums_acs_1_year_sample/
 
 ### Step 1: Obtain the Data
 
-The IPUMS extract (`usa_00001.dta.gz`) should already be in `data/raw/`. If you need to create a new extract:
+Place **one** `.dta` or `.dta.gz` file in `data/raw/`. The scripts will auto-detect it.
 
+**Option A — Download from Dropbox (recommended):**
+1. Go to the [Dropbox folder](https://www.dropbox.com/scl/fo/ds69nbylyp6582opynk3w/AIOmznaVTgjnjtcNY7rSFsw?rlkey=ctrwg26u0c2z6prjwz4llnx5a&st=6hts8sht&dl=0)
+2. Pick the extract that fits your needs (see size table above)
+3. Place it in `data/raw/`
+
+**Option B — Create your own IPUMS extract:**
 1. Go to https://usa.ipums.org/usa/
 2. Create an account (free for researchers)
 3. Select samples: ACS 1-year for your desired years
 4. Select variables (see Key Variables below for suggestions)
 5. Download as Stata (.dta) format
-6. Place the `.dta.gz` file in `data/raw/`
+6. Place the `.dta` or `.dta.gz` file in `data/raw/`
+
+> **Note:** The starter scripts auto-detect whichever data file is in `data/raw/`. If you have multiple files, you can specify which one to use at the top of each script. Sections that reference variables not in your extract are automatically skipped.
 
 ### Step 2: Load and Subset
 
@@ -222,9 +241,9 @@ The `yrsed` variable maps IPUMS detailed education codes (`educd`) to continuous
 
 ### File Size
 
-The raw IPUMS extract is very large (approx. 12 GB compressed). Loading requires substantial RAM (16+ GB recommended). If memory is an issue:
-- Download a smaller extract from IPUMS with fewer variables
-- Download only the years you need
+The pre-built extracts range from 11 GB to 45 GB (uncompressed). Loading requires substantial RAM (16+ GB recommended). If memory is an issue:
+- Use a smaller pre-built extract (e.g., `usa_00003_2023_2024.dta` at 11 GB)
+- Create a custom IPUMS extract with fewer variables or years
 - Use column selection when reading (`col_select` in R's `read_dta()`)
 
 ## Common Research Applications

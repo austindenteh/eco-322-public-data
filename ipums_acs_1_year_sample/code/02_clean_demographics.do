@@ -5,10 +5,9 @@
 *          (1) Demographics: race/ethnicity, sex, age, marital status
 *          (2) Education: years of education, degree indicators
 *          (3) Employment and income
-*          (4) Health insurance
-*          (5) Immigration and citizenship
-*          (6) Poverty and public assistance
-*          (7) Descriptive statistics and simple regressions
+*          (4) Health insurance (if available; 2008+ only)
+*          (5) Immigration and citizenship (if available)
+*          (6) Descriptive statistics and simple regressions
 *
 * Input:   output/acs_working.dta  (from 01_load_and_subset.do)
 * Output:  Descriptive statistics and regression output to console
@@ -20,6 +19,10 @@
 * Notes:   This is a STARTER script. It demonstrates how to clean key
 *          variables. Users should extend this for their own analysis.
 *          Variable coding follows the Kuka et al. (2020) replication code.
+*
+*          The script uses variables that are standard in most IPUMS ACS
+*          extracts. Health insurance and immigration sections are guarded
+*          since those variables may not be in every extract.
 *
 * Author:  Austin Denteh (adapted from Kuka et al. 2020 replication code)
 * Date:    February 2026
@@ -37,6 +40,24 @@ cd "$acs_root"
 
 use "output/acs_working.dta", clear
 display as text "Loaded " _N " observations."
+
+* --- Quick check: core variables ---
+* These should be in any IPUMS ACS extract. If missing, the extract
+* may need to be recreated with more variables selected.
+local core_vars "year age sex race hispan educd empstat incwage poverty"
+local missing_core ""
+foreach v of local core_vars {
+    capture confirm variable `v'
+    if _rc != 0 {
+        local missing_core "`missing_core' `v'"
+    }
+}
+if "`missing_core'" != "" {
+    display as error "WARNING: The following core variables are not in your extract:"
+    display as error " `missing_core'"
+    display as error "Some sections below may produce errors."
+    display as error "Consider creating a new IPUMS extract that includes these variables."
+}
 
 * ============================================================================
 * 2. DEMOGRAPHICS: RACE AND ETHNICITY
@@ -75,7 +96,10 @@ tab race_eth
 gen female = (sex == 2)
 
 * --- Marital status ---
-gen married = (marst == 1 | marst == 2)
+capture confirm variable marst
+if _rc == 0 {
+    gen married = (marst == 1 | marst == 2)
+}
 
 * --- Age group indicators ---
 gen age_18_24 = (age >= 18 & age <= 24)
@@ -90,9 +114,6 @@ summarize age, detail
 
 display as text _newline "--- Sex ---"
 tab female
-
-display as text _newline "--- Marital status ---"
-tab married
 
 * ============================================================================
 * 4. EDUCATION
@@ -166,77 +187,71 @@ display as text _newline "--- Wage income (conditional on positive) ---"
 summarize wage if wage > 0, detail
 
 * ============================================================================
-* 7. HEALTH INSURANCE
+* 7. HEALTH INSURANCE (if available)
 * ============================================================================
 * hcovany: 1 = no coverage, 2 = with coverage (available 2008+)
-* hcovpriv/hcovpub: private/public coverage
+* These variables may not be in every extract.
 
-gen any_insurance = (hcovany == 2)     if hcovany != .
-gen priv_ins      = (hcovpriv == 2)    if hcovpriv != .
-gen pub_ins       = (hcovpub == 2)     if hcovpub != .
-gen medicaid      = (hinscaid == 2)    if hinscaid != .
-gen medicare      = (hinscare == 2)    if hinscare != .
-gen uninsured     = (hcovany == 1)     if hcovany != .
+capture confirm variable hcovany
+if _rc == 0 {
+    gen any_insurance = (hcovany == 2)     if hcovany != .
+    gen uninsured     = (hcovany == 1)     if hcovany != .
 
-display as text _newline "--- Health insurance (2008+) ---"
-tab any_insurance if year >= 2008
-tab uninsured    if year >= 2008
+    capture confirm variable hcovpriv
+    if _rc == 0  gen priv_ins  = (hcovpriv == 2) if hcovpriv != .
+    capture confirm variable hcovpub
+    if _rc == 0  gen pub_ins   = (hcovpub == 2)  if hcovpub != .
+    capture confirm variable hinscaid
+    if _rc == 0  gen medicaid  = (hinscaid == 2)  if hinscaid != .
+    capture confirm variable hinscare
+    if _rc == 0  gen medicare  = (hinscare == 2)  if hinscare != .
 
-* ============================================================================
-* 8. IMMIGRATION AND CITIZENSHIP
-* ============================================================================
-
-* --- Citizenship status ---
-* citizen: 0 = N/A, 1 = born abroad of US parents, 2 = naturalized,
-*          3 = not a citizen, 4 = born in US, 5 = born in US territories
-gen noncitizen  = (citizen == 3)       if citizen != 0
-gen usborn      = inlist(citizen, 4, 5) if citizen != 0
-gen naturalized = (citizen == 2)       if citizen != 0
-
-* --- Birthplace regions ---
-gen bpl_us       = (bpl >= 1 & bpl <= 120)
-gen bpl_mexico   = (bpl == 200)
-gen bpl_centam   = (bpl >= 210 & bpl <= 300)
-gen bpl_asia     = (bpl >= 500 & bpl < 600)
-gen bpl_europe   = (bpl >= 400 & bpl < 500)
-gen bpl_africa   = (bpl >= 800 & bpl < 900)
-
-* --- Year and age at immigration ---
-gen ageimmig = yrimmig - birthyr if yrimmig > 0
-replace ageimmig = . if ageimmig < 0
-
-* --- Language ---
-gen english    = (language == 1)       if language != .
-gen spanish    = (language == 12)      if language != .
-gen nonfluent  = inlist(speakeng, 1, 6) if speakeng != .
-
-display as text _newline "--- Citizenship ---"
-tab noncitizen
-
-display as text _newline "--- Birthplace region ---"
-tab bpl_us
+    display as text _newline "--- Health insurance (2008+) ---"
+    tab any_insurance if year >= 2008
+    tab uninsured    if year >= 2008
+}
+else {
+    display as text _newline "[SKIP] Health insurance: hcovany not in extract."
+}
 
 * ============================================================================
-* 9. PUBLIC ASSISTANCE
+* 8. IMMIGRATION AND CITIZENSHIP (if available)
 * ============================================================================
 
-* --- Food stamps / SNAP ---
-gen foodstamp = (foodstmp == 2) if foodstmp != .
+capture confirm variable citizen
+if _rc == 0 {
+    * citizen: 0=N/A, 1=born abroad of US parents, 2=naturalized,
+    *          3=not a citizen, 4=born in US, 5=born in US territories
+    gen noncitizen  = (citizen == 3)       if citizen != 0
+    gen usborn      = inlist(citizen, 4, 5) if citizen != 0
+    gen naturalized = (citizen == 2)       if citizen != 0
 
-display as text _newline "--- Food stamps/SNAP ---"
-tab foodstamp
+    display as text _newline "--- Citizenship ---"
+    tab noncitizen
+}
+else {
+    display as text _newline "[SKIP] Citizenship: citizen not in extract."
+}
+
+capture confirm variable bpl
+if _rc == 0 {
+    gen bpl_us       = (bpl >= 1 & bpl <= 120)
+    gen bpl_mexico   = (bpl == 200)
+    gen bpl_centam   = (bpl >= 210 & bpl <= 300)
+    gen bpl_asia     = (bpl >= 500 & bpl < 600)
+    gen bpl_europe   = (bpl >= 400 & bpl < 500)
+}
 
 * ============================================================================
-* 10. DESCRIPTIVE STATISTICS
+* 9. DESCRIPTIVE STATISTICS
 * ============================================================================
 
 display as text _newline "============================================"
 display as text "   DESCRIPTIVE STATISTICS"
 display as text "============================================"
 
-* --- 10a. Summary of key variables ---
 display as text _newline "--- Key demographic variables ---"
-summarize female age married hisp white black asian
+summarize female age hisp white black asian
 
 display as text _newline "--- Education variables ---"
 summarize yrsed hs some_college college
@@ -244,24 +259,22 @@ summarize yrsed hs some_college college
 display as text _newline "--- Employment and income ---"
 summarize employed in_lf wage inpov finc_to_pov
 
-display as text _newline "--- Insurance variables (2008+) ---"
-summarize any_insurance priv_ins pub_ins uninsured if year >= 2008
+capture confirm variable uninsured
+if _rc == 0 {
+    display as text _newline "--- Insurance variables (2008+) ---"
+    capture summarize any_insurance priv_ins pub_ins uninsured if year >= 2008
 
-display as text _newline "--- Immigration variables ---"
-summarize noncitizen usborn naturalized bpl_us bpl_mexico
+    display as text _newline "--- Uninsured rate by year (2008+) ---"
+    capture table year if year >= 2008, ///
+        statistic(mean uninsured) statistic(count uninsured) nformat(%9.3f)
 
-* --- 10b. Insurance coverage trends ---
-display as text _newline "--- Uninsured rate by year (2008+) ---"
-capture table year if year >= 2008, ///
-    statistic(mean uninsured) statistic(count uninsured) nformat(%9.3f)
-
-* --- 10c. Uninsured rate by race/ethnicity ---
-display as text _newline "--- Uninsured rate by race/ethnicity (2008+) ---"
-capture table race_eth if year >= 2008, ///
-    statistic(mean uninsured) statistic(count uninsured) nformat(%9.3f)
+    display as text _newline "--- Uninsured rate by race/ethnicity (2008+) ---"
+    capture table race_eth if year >= 2008, ///
+        statistic(mean uninsured) statistic(count uninsured) nformat(%9.3f)
+}
 
 * ============================================================================
-* 11. EXAMPLE REGRESSION
+* 10. EXAMPLE REGRESSION
 * ============================================================================
 * Simple OLS: uninsured = f(demographics, education)
 * This is just a demonstration — not a causal model.
@@ -270,52 +283,56 @@ display as text _newline "============================================"
 display as text "   EXAMPLE REGRESSION"
 display as text "============================================"
 
-display as text _newline "--- OLS: Uninsured on demographics (2008+, ages 18-64) ---"
-reg uninsured female age i.race_eth hs college married noncitizen ///
-    i.year [pw=perwt] if year >= 2008 & age >= 18 & age <= 64, robust
+capture confirm variable uninsured
+if _rc == 0 {
+    display as text _newline "--- OLS: Uninsured on demographics (2008+, ages 18-64) ---"
+    capture noisily reg uninsured female age i.race_eth hs college ///
+        i.year [pw=perwt] if year >= 2008 & age >= 18 & age <= 64, robust
+}
+else {
+    display as text _newline "[SKIP] Regression requires insurance variables."
+    display as text "  Alternative: try a wage regression:"
+    display as text "    reg wage female age i.race_eth hs college i.year [pw=perwt], robust"
+}
 
 display as text _newline "============================================"
 display as text "   CLEANING COMPLETE"
 display as text "============================================"
-display as text "Variables created: race_eth, female, married, yrsed, hs,"
-display as text "  some_college, college, employed, in_lf, wage, inpov,"
-display as text "  any_insurance, uninsured, noncitizen, usborn, and more."
+display as text "Variables created: race_eth, female, yrsed, hs, college,"
+display as text "  employed, in_lf, wage, inpov, and more."
 display as text _newline "This is a starter script — extend for your own analysis."
 
 ********************************************************************************
 * NOTES:
 *
-* 1. SAMPLE RESTRICTIONS:
+* 1. CUSTOM EXTRACTS:
+*    The core sections (demographics, education, employment, income) use
+*    variables that are standard in most IPUMS ACS extracts. Health
+*    insurance and immigration sections are lightly guarded since those
+*    variables may not be in every extract.
+*
+* 2. SAMPLE RESTRICTIONS:
 *    This script does not restrict the sample. For specific analyses:
 *    - Working-age adults: keep if age >= 18 & age <= 64
 *    - Children: keep if age < 18
 *    - Non-institutionalized: keep if gq != 3 & gq != 4
 *
-* 2. SURVEY WEIGHTS:
+* 3. SURVEY WEIGHTS:
 *    Always use perwt for person-level estimates:
 *      [pw=perwt]     for regressions
 *      [fw=perwt]     for tabulations (approximate)
 *    For proper standard errors, use replicate weights with svyset.
 *
-* 3. EDUCATION CODING:
+* 4. EDUCATION CODING:
 *    The yrsed variable follows the Kuka et al. mapping from IPUMS
 *    detailed education codes (educd). Some rare categories may be
 *    unmapped (yrsed will be missing for those observations).
 *
-* 4. INSURANCE VARIABLES:
+* 5. INSURANCE VARIABLES:
 *    Health insurance variables (hcovany, hcovpriv, hcovpub, etc.)
 *    are only available from 2008 onwards.
 *
-* 5. IMMIGRATION:
+* 6. IMMIGRATION:
 *    - citizen == 3 identifies non-citizens
-*    - yrimmig gives year of immigration (0 = born in US)
 *    - bpl gives detailed birthplace codes
-*
-* 6. COMMON RESEARCH APPLICATIONS:
-*    - Insurance coverage (ACA effects, Medicaid expansion)
-*    - Immigration (DACA, citizenship status, assimilation)
-*    - Education attainment and returns to education
-*    - Labor market outcomes (employment, wages)
-*    - Poverty and public assistance
-*    - Disability and health
 ********************************************************************************
