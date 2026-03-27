@@ -61,12 +61,12 @@ dhs <- dhs %>%
       age_years >= 50 & age_years <= 59 ~ 8L
     ),
 
-    married       = as.integer(marital_status == 1),
-    cohabiting    = as.integer(marital_status == 2),
-    in_union      = as.integer(marital_status %in% c(1, 2)),
-    never_married = as.integer(marital_status == 0),
-    widowed       = as.integer(marital_status == 3),
-    divorced_sep  = as.integer(marital_status %in% c(4, 5)),
+    married       = ifelse(is.na(marital_status), NA_integer_, as.integer(marital_status == 1)),
+    cohabiting    = ifelse(is.na(marital_status), NA_integer_, as.integer(marital_status == 2)),
+    in_union      = ifelse(is.na(marital_status), NA_integer_, as.integer(marital_status %in% c(1, 2))),
+    never_married = ifelse(is.na(marital_status), NA_integer_, as.integer(marital_status == 0)),
+    widowed       = ifelse(is.na(marital_status), NA_integer_, as.integer(marital_status == 3)),
+    divorced_sep  = ifelse(is.na(marital_status), NA_integer_, as.integer(marital_status %in% c(4, 5))),
 
     employed = case_when(
       working_now == 1 ~ 1L,
@@ -88,10 +88,12 @@ dhs <- dhs %>%
     educ_second  = ifelse(is.na(educ_level), NA_integer_, as.integer(educ_level == 2)),
     educ_higher  = ifelse(is.na(educ_level), NA_integer_, as.integer(educ_level == 3)),
 
+    # DHS standard: literate if higher education OR can read part/whole sentence
     literate = case_when(
-      is.na(literacy)       ~ NA_integer_,
-      literacy %in% c(1, 2) ~ 1L,
-      literacy == 0         ~ 0L
+      educ_level == 3                    ~ 1L,
+      literacy %in% c(1, 2)              ~ 1L,
+      literacy == 0                      ~ 0L,
+      educ_level < 3 & is.na(literacy)   ~ NA_integer_
     )
   )
 

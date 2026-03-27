@@ -39,13 +39,13 @@ Downloaded from the **DHS Program** data repository:
 | 1993 | III | 4,562 | 1,015 | 10 | No | No |
 | 1998 | IV | 4,843 | 1,546 | 10 | No | No |
 | 2003 | IV+ | 5,691 | 5,015 | 10 | No | Yes |
-| **2008** | **V** | **4,916** | **4,568** | **10** | **Yes (NHIS)** | **Yes** |
-| **2014** | **VII** | **9,396** | **4,388** | **10** | **Yes (NHIS)** | **Yes** |
-| **2022** | **VIII** | **15,014** | **7,044** | **16** | **Yes (NHIS)** | **Yes** |
+| 2008 | V | 4,916 | 4,568 | 10 | Yes (NHIS) | Yes |
+| 2014 | VII | 9,396 | 4,388 | 10 | Yes (NHIS) | Yes |
+| 2022 | VIII | 15,014 | 7,044 | 16 | Yes (NHIS) | Yes |
 
 \* 1988 uses `v101`/`v102` for region/residence instead of `v024`/`v025`.
 
-**Starter scripts are provided for the three most recent waves (2008, 2014, 2022)**, which include health insurance data relevant to health economics research. Earlier waves can be loaded following the same pattern.
+**Starter scripts are provided for all 7 waves (1988–2022)** in both Stata and R, with full Stata–R parity verified. The three most recent waves (2008, 2014, 2022) include health insurance data relevant to health economics research.
 
 ---
 
@@ -55,20 +55,26 @@ Downloaded from the **DHS Program** data repository:
 dhs/
 ├── README.md                    ← This file
 ├── code/
-│   ├── 01_load_2008.do          ← Load & harmonize 2008 women + men (Stata)
-│   ├── 01_load_2008.R           ← Load & harmonize 2008 women + men (R)
-│   ├── 01_load_2014.do          ← Load & harmonize 2014 women + men (Stata)
-│   ├── 01_load_2014.R           ← Load & harmonize 2014 women + men (R)
-│   ├── 01_load_2022.do          ← Load & harmonize 2022 women + men (Stata)
-│   ├── 01_load_2022.R           ← Load & harmonize 2022 women + men (R)
-│   ├── 02_clean_2008.do         ← Clean & analyze 2008 (Stata)
-│   ├── 02_clean_2008.R          ← Clean & analyze 2008 (R)
-│   ├── 02_clean_2014.do         ← Clean & analyze 2014 (Stata)
-│   ├── 02_clean_2014.R          ← Clean & analyze 2014 (R)
-│   ├── 02_clean_2022.do         ← Clean & analyze 2022 (Stata)
-│   └── 02_clean_2022.R          ← Clean & analyze 2022 (R)
+│   ├── 01_load_1988.do/.R       ← Load & harmonize 1988 women only (no men's recode)
+│   ├── 01_load_1993.do/.R       ← Load & harmonize 1993 women + men
+│   ├── 01_load_1998.do/.R       ← Load & harmonize 1998 women + men
+│   ├── 01_load_2003.do/.R       ← Load & harmonize 2003 women + men
+│   ├── 01_load_2008.do/.R       ← Load & harmonize 2008 women + men
+│   ├── 01_load_2014.do/.R       ← Load & harmonize 2014 women + men
+│   ├── 01_load_2022.do/.R       ← Load & harmonize 2022 women + men
+│   ├── 02_clean_1988.do/.R      ← Clean & analyze 1988 (no literacy/wealth/insurance)
+│   ├── 02_clean_1993.do/.R      ← Clean & analyze 1993 (no literacy/wealth/insurance)
+│   ├── 02_clean_1998.do/.R      ← Clean & analyze 1998 (no literacy/wealth/insurance)
+│   ├── 02_clean_2003.do/.R      ← Clean & analyze 2003 (has literacy/wealth, no insurance)
+│   ├── 02_clean_2008.do/.R      ← Clean & analyze 2008 (full variable set incl. NHIS)
+│   ├── 02_clean_2014.do/.R      ← Clean & analyze 2014 (full variable set incl. NHIS)
+│   └── 02_clean_2022.do/.R      ← Clean & analyze 2022 (full variable set, 16 regions)
 ├── data/
 │   └── raw/
+│       ├── ghana_1988/          ← DHS recode files for 1988
+│       ├── ghana_1993/          ← DHS recode files for 1993
+│       ├── ghana_1998/          ← DHS recode files for 1998
+│       ├── ghana_2003/          ← DHS recode files for 2003
 │       ├── ghana_2008/          ← DHS recode files for 2008
 │       ├── ghana_2014/          ← DHS recode files for 2014
 │       └── ghana_2022/          ← DHS recode files for 2022

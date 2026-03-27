@@ -57,12 +57,12 @@ label define age_group_lbl 1 "15-19" 2 "20-24" 3 "25-29" 4 "30-34" ///
 label values age_group age_group_lbl
 
 * Marital status categories
-gen byte married       = (marital_status == 1)
-gen byte cohabiting    = (marital_status == 2)
-gen byte in_union      = inlist(marital_status, 1, 2)
-gen byte never_married = (marital_status == 0)
-gen byte widowed       = (marital_status == 3)
-gen byte divorced_sep  = inlist(marital_status, 4, 5)
+gen byte married       = (marital_status == 1)     if !missing(marital_status)
+gen byte cohabiting    = (marital_status == 2)     if !missing(marital_status)
+gen byte in_union      = inlist(marital_status, 1, 2) if !missing(marital_status)
+gen byte never_married = (marital_status == 0)     if !missing(marital_status)
+gen byte widowed       = (marital_status == 3)     if !missing(marital_status)
+gen byte divorced_sep  = inlist(marital_status, 4, 5) if !missing(marital_status)
 
 label var married       "Currently married"
 label var cohabiting    "Living together/cohabiting"
@@ -94,10 +94,13 @@ label var educ_second  "Secondary education"
 label var educ_higher  "Higher education"
 
 * Literate (can read whole sentence or parts of sentence)
+* DHS standard: literate if higher education OR can read part/whole sentence
+* (following DHS-Indicators-Stata-master/Chap03_RC/RC_CHAR.do)
 gen byte literate = .
-replace literate = 1 if inlist(literacy, 1, 2)
-replace literate = 0 if literacy == 0
-label var literate "Literate (can read at least parts of a sentence)"
+replace literate = 0 if literacy == 0                   // cannot read
+replace literate = 1 if inlist(literacy, 1, 2)          // can read part/whole
+replace literate = 1 if educ_level == 3                 // higher education always trumps
+label var literate "Literate (higher educ or can read part/whole sentence)"
 
 * ==========================================================================
 * SECTION 3: Religion
