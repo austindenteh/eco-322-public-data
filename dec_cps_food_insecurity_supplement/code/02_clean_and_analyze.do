@@ -84,6 +84,7 @@ label var black "Black, non-Hispanic"
 gen amind = (race == 300 & hisp == 0)
 label var amind "American Indian, non-Hispanic"
 
+capture drop asian   // IPUMS CPS may include an 'asian' flag variable
 gen asian = (inlist(race, 650, 651, 652) & hisp == 0)
 label var asian "Asian/Pacific Islander, non-Hispanic"
 
