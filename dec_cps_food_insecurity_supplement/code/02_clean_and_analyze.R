@@ -279,13 +279,15 @@ cat("-----------------------------------------------------------------\n\n")
 # Coding: 1 = high, 2 = marginal, 3 = low, 4 = very low
 #         98 = no response, 99 = NIU
 if ("fsstatusd" %in% names(cps)) {
+  # Note: must exclude is.na() explicitly because %in% returns FALSE for NA,
+  # which would code NA observations as 0 instead of NA.
   cps <- cps %>%
     mutate(
-      fs_high       = ifelse(fsstatusd %in% c(98, 99), NA, as.integer(fsstatusd == 1)),
-      fs_marginal   = ifelse(fsstatusd %in% c(98, 99), NA, as.integer(fsstatusd == 2)),
-      fs_low        = ifelse(fsstatusd %in% c(98, 99), NA, as.integer(fsstatusd == 3)),
-      fs_verylow    = ifelse(fsstatusd %in% c(98, 99), NA, as.integer(fsstatusd == 4)),
-      food_insecure = ifelse(fsstatusd %in% c(98, 99), NA, as.integer(fsstatusd %in% c(3, 4)))
+      fs_high       = ifelse(is.na(fsstatusd) | fsstatusd %in% c(98, 99), NA, as.integer(fsstatusd == 1)),
+      fs_marginal   = ifelse(is.na(fsstatusd) | fsstatusd %in% c(98, 99), NA, as.integer(fsstatusd == 2)),
+      fs_low        = ifelse(is.na(fsstatusd) | fsstatusd %in% c(98, 99), NA, as.integer(fsstatusd == 3)),
+      fs_verylow    = ifelse(is.na(fsstatusd) | fsstatusd %in% c(98, 99), NA, as.integer(fsstatusd == 4)),
+      food_insecure = ifelse(is.na(fsstatusd) | fsstatusd %in% c(98, 99), NA, as.integer(fsstatusd %in% c(3, 4)))
     )
 
   n_valid_hh <- sum(!is.na(cps$food_insecure))
@@ -311,10 +313,10 @@ if ("fsstatusd" %in% names(cps)) {
 if ("fsstatusa" %in% names(cps)) {
   cps <- cps %>%
     mutate(
-      fsa_high    = ifelse(fsstatusa %in% c(98, 99), NA, as.integer(fsstatusa == 1)),
-      fsa_low     = ifelse(fsstatusa %in% c(98, 99), NA, as.integer(fsstatusa == 3)),
-      fsa_verylow = ifelse(fsstatusa %in% c(98, 99), NA, as.integer(fsstatusa == 4)),
-      adult_food_insecure = ifelse(fsstatusa %in% c(98, 99), NA, as.integer(fsstatusa %in% c(3, 4)))
+      fsa_high    = ifelse(is.na(fsstatusa) | fsstatusa %in% c(98, 99), NA, as.integer(fsstatusa == 1)),
+      fsa_low     = ifelse(is.na(fsstatusa) | fsstatusa %in% c(98, 99), NA, as.integer(fsstatusa == 3)),
+      fsa_verylow = ifelse(is.na(fsstatusa) | fsstatusa %in% c(98, 99), NA, as.integer(fsstatusa == 4)),
+      adult_food_insecure = ifelse(is.na(fsstatusa) | fsstatusa %in% c(98, 99), NA, as.integer(fsstatusa %in% c(3, 4)))
     )
 
   cat("Adult food security (fsstatusa):\n")
@@ -334,9 +336,9 @@ if ("fsstatusa" %in% names(cps)) {
 if ("fsstatusc" %in% names(cps)) {
   cps <- cps %>%
     mutate(
-      fsc_low     = ifelse(fsstatusc %in% c(98, 99), NA, as.integer(fsstatusc == 2)),
-      fsc_verylow = ifelse(fsstatusc %in% c(98, 99), NA, as.integer(fsstatusc == 3)),
-      child_food_insecure = ifelse(fsstatusc %in% c(98, 99), NA, as.integer(fsstatusc %in% c(2, 3)))
+      fsc_low     = ifelse(is.na(fsstatusc) | fsstatusc %in% c(98, 99), NA, as.integer(fsstatusc == 2)),
+      fsc_verylow = ifelse(is.na(fsstatusc) | fsstatusc %in% c(98, 99), NA, as.integer(fsstatusc == 3)),
+      child_food_insecure = ifelse(is.na(fsstatusc) | fsstatusc %in% c(98, 99), NA, as.integer(fsstatusc %in% c(2, 3)))
     )
 
   cat("Child food security (fsstatusc):\n")
@@ -379,7 +381,7 @@ cat("-----------------------------------------------------------------\n\n")
 if ("fsfdstmp" %in% names(cps)) {
   cps <- cps %>%
     mutate(
-      snap_participant = ifelse(fsfdstmp %in% c(0, 98, 99), NA, as.integer(fsfdstmp == 1))
+      snap_participant = ifelse(is.na(fsfdstmp) | fsfdstmp %in% c(0, 98, 99), NA, as.integer(fsfdstmp == 1))
     )
 
   cat(sprintf("  SNAP participants: %s (%.1f%% of valid responses)\n",
@@ -421,7 +423,7 @@ cat("-----------------------------------------------------------------\n\n")
 # Helper: create binary indicator from FSS yes/no variable
 # Coding: 0 = NIU, 1 = Yes, 2 = No → binary (== 1), NA if 0/98/99
 make_fss_binary <- function(x) {
-  ifelse(x %in% c(0, 98, 99), NA, as.integer(x == 1))
+  ifelse(is.na(x) | x %in% c(0, 98, 99), NA, as.integer(x == 1))
 }
 
 # School lunch (free/reduced price)
