@@ -9,6 +9,8 @@
 *.exe
 *.log
 *.DAT
+*.dat
+*.xml
 CLAUDE.md
 Data-Overview-for-Term-Paper-with-Starter-Repository-Notes.Rmd
 *.sas7bdat

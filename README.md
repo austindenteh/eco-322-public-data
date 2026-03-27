@@ -10,6 +10,7 @@ Starter code (Stata + R) and documentation for publicly available datasets used 
 |---|---|---|
 | **BRFSS** | [`brfss/`](brfss/) | Behavioral Risk Factor Surveillance System — adult health behaviors, chronic conditions (2011–2024) |
 | **IPUMS ACS** | [`ipums_acs_1_year_sample/`](ipums_acs_1_year_sample/) | American Community Survey — insurance, education, immigration (2006–2024) |
+| **December CPS (FSS)** | [`dec_cps_food_insecurity_supplement/`](dec_cps_food_insecurity_supplement/) | CPS Food Security Supplement — food insecurity, SNAP, food assistance (2001–2025) |
 | **March CPS** | [`march_cps/`](march_cps/) | Current Population Survey ASEC — insurance, income, labor market (2005–2025) |
 | **NHIS** | [`nhis/`](nhis/) | National Health Interview Survey — insurance, health status, utilization (2019–2024) |
 | **YRBSS** | [`yrbs/`](yrbs/) | Youth Risk Behavior Surveillance System — youth mental health, substance use (1991–2023) |
