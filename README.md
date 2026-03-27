@@ -15,6 +15,7 @@ Starter code (Stata + R) and documentation for publicly available datasets used 
 | **NHIS** | [`nhis/`](nhis/) | National Health Interview Survey — insurance, health status, utilization (2019–2024) |
 | **YRBSS** | [`yrbs/`](yrbs/) | Youth Risk Behavior Surveillance System — youth mental health, substance use (1991–2023) |
 | **RAND HRS** | [`hrs/`](hrs/) | Health and Retirement Study — aging, chronic conditions, cognition (1992–2022) |
+| **Ghana DHS** | [`dhs/`](dhs/) | Demographic and Health Surveys — health insurance (NHIS), demographics, wealth (2008, 2014, 2022) |
 
 ## How to Use
 
