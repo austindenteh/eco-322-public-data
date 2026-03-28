@@ -12,6 +12,7 @@
 *.dat
 *.xml
 CLAUDE.md
+.claude/
 Data-Overview-for-Term-Paper-with-Starter-Repository-Notes.Rmd
 *.sas7bdat
 *.Rhistory
