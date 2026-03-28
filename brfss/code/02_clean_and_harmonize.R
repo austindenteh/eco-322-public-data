@@ -13,7 +13,7 @@
 # Usage:   Set brfss_root to the brfss/ directory, then source this script.
 #
 # Key harmonization issues:
-#   - Race/ethnicity: _racegr3 (2011-2021) vs. _racegr4 (2022+)
+#   - Race/ethnicity: _racegr3 (2015-2021, 2023+) vs. _racegr4 (2022 only)
 #   - Income: income2 (2011-2020) vs. income3 (2021+)
 #   - Sex/gender: sex (2011-2021) vs. sexvar/birthsex (2022+)
 #
@@ -93,20 +93,23 @@ brfss <- brfss %>%
     ),
 
     # --- 3d. Race/Ethnicity --------------------------------------------------
-    # _racegr3 (2011-2021): 1=White NH, 2=Black NH, 3=Other NH, 4=Multi NH, 5=Hispanic
-    # _racegr4 (2022+): 1=White NH, 2=Black NH, 3=Asian NH, 4=AIAN NH, 5=Hispanic, 6=Other/Multi
-    # Harmonize to 4 categories.
+    # The CDC's computed race/ethnicity variable changed names over time:
+    #   2015-2021: _racegr3 (1=White NH, 2=Black NH, 3=Other NH, 4=Multi NH, 5=Hispanic)
+    #   2022:      _racegr4 (1=White NH, 2=Black NH, 3=Asian NH, 4=AIAN NH, 5=Hispanic, 6=Other/Multi)
+    #   2023-2024: _racegr3 again (CDC reverted the name; same 1-5 coding)
+    # Instead of year-based conditions, we check which variable has data.
+    # _racegr3 is tried first (covers most years), _racegr4 fills in the rest.
     race_eth = case_when(
-      # 2011-2021
-      surveyyear <= 2021 & `_racegr3` == 1 ~ 1L,  # White NH
-      surveyyear <= 2021 & `_racegr3` == 2 ~ 2L,  # Black NH
-      surveyyear <= 2021 & `_racegr3` == 5 ~ 3L,  # Hispanic
-      surveyyear <= 2021 & `_racegr3` %in% c(3, 4) ~ 4L,  # Other/Multi NH
-      # 2022+
-      surveyyear >= 2022 & `_racegr4` == 1 ~ 1L,
-      surveyyear >= 2022 & `_racegr4` == 2 ~ 2L,
-      surveyyear >= 2022 & `_racegr4` == 5 ~ 3L,
-      surveyyear >= 2022 & `_racegr4` %in% c(3, 4, 6) ~ 4L,
+      # Use _racegr3 wherever it has non-missing values (2015-2021, 2023+)
+      `_racegr3` == 1 ~ 1L,  # White NH
+      `_racegr3` == 2 ~ 2L,  # Black NH
+      `_racegr3` == 5 ~ 3L,  # Hispanic
+      `_racegr3` %in% c(3, 4) ~ 4L,  # Other/Multi NH
+      # Use _racegr4 wherever it has non-missing values (2022)
+      `_racegr4` == 1 ~ 1L,
+      `_racegr4` == 2 ~ 2L,
+      `_racegr4` == 5 ~ 3L,
+      `_racegr4` %in% c(3, 4, 6) ~ 4L,
       TRUE ~ NA_integer_
     ),
 

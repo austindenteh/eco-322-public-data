@@ -14,7 +14,7 @@
 *            do code/02_clean_and_harmonize.do
 *
 * Key harmonization issues:
-*   - Race/ethnicity: _RACEGR3 (2011-2021) vs. _RACEGR4 (2022+)
+*   - Race/ethnicity: _RACEGR3 (2015-2021, 2023+) vs. _RACEGR4 (2022 only)
 *   - Income: INCOME2 (2011-2020) vs. INCOME3 (2021+)
 *   - Sex/gender: SEX (2011-2021) vs. SEXVAR/BIRTHSEX (2022+)
 *   - Calculated BMI: _BMI5 available throughout, but coding may shift
@@ -109,26 +109,29 @@ label define female_lbl 0 "Male" 1 "Female"
 label values female female_lbl
 
 * --- 4e. Race/Ethnicity -----------------------------------------------------
-* _RACEGR3 (2011-2021): 1=White NH, 2=Black NH, 3=Other NH, 4=Multiracial NH, 5=Hispanic
-* _RACEGR4 (2022+): recategorized (1=White NH, 2=Black NH, 3=Asian NH, 4=AIAN NH, 5=Hispanic, 6=Other/Multi)
+* The CDC's computed race/ethnicity variable changed names over time:
+*   2011-2014: _RACEGR2 (not used here; scripts start at 2015+)
+*   2015-2021: _RACEGR3 (1=White NH, 2=Black NH, 3=Other NH, 4=Multi NH, 5=Hispanic)
+*   2022:      _RACEGR4 (1=White NH, 2=Black NH, 3=Asian NH, 4=AIAN NH, 5=Hispanic, 6=Other/Multi)
+*   2023-2024: _RACEGR3 again (CDC reverted the name; same 1-5 coding as pre-2022)
 *
-* We create a harmonized 4-category variable.
+* Instead of year-based conditions (which break when CDC changes names),
+* we check which variable has non-missing values for each observation.
 
 gen race_eth = .
 label var race_eth "Race/ethnicity (harmonized)"
 
-* For years using _RACEGR3 (2011-2021)
-* (capture protects against _RACEGR3 not existing when only 2022+ data loaded)
-capture replace race_eth = 1 if _racegr3 == 1 & surveyyear <= 2021           // White NH
-capture replace race_eth = 2 if _racegr3 == 2 & surveyyear <= 2021           // Black NH
-capture replace race_eth = 3 if _racegr3 == 5 & surveyyear <= 2021           // Hispanic
-capture replace race_eth = 4 if (_racegr3 == 3 | _racegr3 == 4) & surveyyear <= 2021  // Other/Multi NH
+* Use _RACEGR3 wherever it has non-missing values (2015-2021, 2023+)
+capture replace race_eth = 1 if _racegr3 == 1 & missing(race_eth)   // White NH
+capture replace race_eth = 2 if _racegr3 == 2 & missing(race_eth)   // Black NH
+capture replace race_eth = 3 if _racegr3 == 5 & missing(race_eth)   // Hispanic
+capture replace race_eth = 4 if (_racegr3 == 3 | _racegr3 == 4) & missing(race_eth)  // Other/Multi NH
 
-* For years using _RACEGR4 (2022+)
-capture replace race_eth = 1 if _racegr4 == 1 & surveyyear >= 2022   // White NH
-capture replace race_eth = 2 if _racegr4 == 2 & surveyyear >= 2022   // Black NH
-capture replace race_eth = 3 if _racegr4 == 5 & surveyyear >= 2022   // Hispanic
-capture replace race_eth = 4 if (_racegr4 == 3 | _racegr4 == 4 | _racegr4 == 6) & surveyyear >= 2022  // Other/Multi/Asian/AIAN NH
+* Use _RACEGR4 wherever it has non-missing values (2022)
+capture replace race_eth = 1 if _racegr4 == 1 & missing(race_eth)   // White NH
+capture replace race_eth = 2 if _racegr4 == 2 & missing(race_eth)   // Black NH
+capture replace race_eth = 3 if _racegr4 == 5 & missing(race_eth)   // Hispanic
+capture replace race_eth = 4 if (_racegr4 == 3 | _racegr4 == 4 | _racegr4 == 6) & missing(race_eth)  // Other/Multi/Asian/AIAN NH
 
 label define race_eth_lbl 1 "White non-Hispanic" 2 "Black non-Hispanic" ///
     3 "Hispanic" 4 "Other/Multiracial non-Hispanic"
