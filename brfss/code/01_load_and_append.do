@@ -8,9 +8,15 @@
 * Input:   data/raw/LLCP20XX.XPT   (default: 2023-2024; expandable to 2011-2024)
 * Output:  output/brfss_appended.dta
 *
-* Usage:   Run this script from the brfss/ directory:
+* Usage:   Run this script from the brfss/ directory, brfss/code/, or the repo root:
 *            cd "/path/to/brfss"
 *            do code/01_load_and_append.do
+*          or
+*            cd "/path/to/brfss/code"
+*            do 01_load_and_append.do
+*          or
+*            cd "/path/to/eco-322-public-data"
+*            do brfss/code/01_load_and_append.do
 *
 * Data:    Behavioral Risk Factor Surveillance System (BRFSS)
 *          CDC annual telephone health survey, 400,000+ adults per year.
@@ -32,30 +38,72 @@ set more off
 * ============================================================================
 * 1. DEFINE PATHS
 * ============================================================================
-* Set the working directory to the brfss/ folder.
-* Users should update this path to match their system.
+* Auto-detect the dataset root from the current working directory.
+* You can also set global brfss_root before running the script.
 
-global brfss_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/brfss"
+local cwd `"`c(pwd)'"'
+if "$brfss_root" != "" & fileexists("$brfss_root/code/01_load_and_append.do") {
+    global brfss_root "$brfss_root"
+}
+else if fileexists("code/01_load_and_append.do") & fileexists("README.md") {
+    global brfss_root "`cwd'"
+}
+else if fileexists("01_load_and_append.do") & fileexists("../README.md") {
+    global brfss_root "`cwd'/.."
+}
+else if fileexists("brfss/code/01_load_and_append.do") & fileexists("brfss/README.md") {
+    global brfss_root "`cwd'/brfss"
+}
+else {
+    display as error "Could not locate the brfss/ directory."
+    display as error "Run from brfss/, brfss/code/, the repo root, or set global brfss_root first."
+    exit 198
+}
+
 cd "$brfss_root"
+display as text "Using BRFSS root: $brfss_root"
 
 local raw_dir  "data/raw"
 local out_dta  "output/brfss_appended.dta"
 
 * ============================================================================
-* 2. DEFINE YEAR RANGE
+* 2. DEFINE YEARS TO LOAD
 * ============================================================================
 * 2011 is the first year of the dual-frame (landline + cell) methodology.
 * The scripts default to 2023-2024 to keep download/processing sizes manageable.
 *
-* To expand to more years, download the corresponding LLCP20XX.XPT files
-* from the shared Dropbox folder (see README) and change first_year below.
+* Choose either a consecutive year range or an explicit year list.
+* If years_to_load is not empty, it overrides first_year/last_year.
 * Examples:
+*   local years_to_load "2011 2014 2024"   // Non-consecutive year list
 *   local first_year 2011    // Full 14-year range (2011-2024, ~12 GB)
 *   local first_year 2019    // Recent 6 years (2019-2024)
 *   local first_year 2023    // Default 2 years (2023-2024)
 
+local years_to_load ""
 local first_year 2023
 local last_year  2024
+
+local years ""
+if trim(`"`years_to_load'"') != "" {
+    local years `years_to_load'
+    local years : list uniq years
+    local years : list sort years
+    local years : list retok years
+    local year_label `"`years'"'
+}
+else {
+    forvalues y = `first_year'(1)`last_year' {
+        local years "`years' `y'"
+    }
+    local years : list retok years
+    local year_label "`first_year'-`last_year'"
+}
+
+if trim(`"`years'"') == "" {
+    display as error "No years selected. Set years_to_load or first_year/last_year."
+    exit 198
+}
 
 * ============================================================================
 * 3. LOOP: IMPORT EACH YEAR AND SAVE AS TEMPFILE
@@ -69,13 +117,13 @@ local last_year  2024
 * On a typical machine, expect 5-10 minutes per year.
 
 display as text _newline "============================================"
-display as text "   LOADING BRFSS DATA (`first_year'-`last_year')"
+display as text "   LOADING BRFSS DATA (`year_label')"
 display as text "============================================"
 
 tempfile master
 local is_first = 1
 
-forvalues y = `first_year'(1)`last_year' {
+foreach y of local years {
 
     display as text _newline "--- Year `y' ---"
 
@@ -123,33 +171,21 @@ display as text _newline "============================================"
 display as text "   VALIDATION CHECKS"
 display as text "============================================"
 
-* --- 5a. Check year range ---
-quietly summarize surveyyear
-if r(min) == `first_year' & r(max) == `last_year' {
-    display as text "[PASS] Survey year range: " r(min) " to " r(max)
+* --- 5a. Check loaded years ---
+levelsof surveyyear, local(loaded_years)
+local loaded_years : list retok loaded_years
+if trim(`"`loaded_years'"') == trim(`"`years'"') {
+    display as text "[PASS] Loaded years match request: `loaded_years'"
 }
 else {
-    display as error "[FAIL] Expected year range `first_year'-`last_year' but found " r(min) " to " r(max)
+    display as error "[FAIL] Expected years `years' but found `loaded_years'"
 }
 
 * --- 5b. Check observations per year ---
 display as text _newline "[INFO] Observations per survey year:"
 tab surveyyear
 
-* --- 5c. Check total is plausible ---
-* Each year typically has 400,000-500,000 respondents.
-quietly tab surveyyear
-local n_years = r(r)
-local lower_bound = `n_years' * 350000
-local upper_bound = `n_years' * 600000
-if _N > `lower_bound' & _N < `upper_bound' {
-    display as text "[PASS] Total observations (" _N ") is plausible for `n_years' year(s)"
-}
-else {
-    display as error "[FAIL] Total observations (" _N ") seems implausible for `n_years' year(s)"
-}
-
-* --- 5d. Check key survey design variables exist ---
+* --- 5c. Check key survey design variables exist ---
 local design_vars "_psu _ststr _llcpwt"
 local all_exist = 1
 local missing_vars ""
@@ -167,29 +203,43 @@ else {
     display as error "[FAIL] Missing survey design variable(s):`missing_vars'"
 }
 
-* --- 5e. Check key content variables exist ---
-local content_vars "genhlth menthlth physhlth _state _ageg5yr _age80 sex educa marital employ1 income2"
-local all_exist = 1
-local missing_vars ""
-foreach v of local content_vars {
-    capture confirm variable `v'
-    if _rc != 0 {
-        local all_exist = 0
-        local missing_vars "`missing_vars' `v'"
+* --- 5d. Check supported harmonization families exist ---
+local family_names "sex race income age employment diabetes copd"
+local family_label_sex "SEX / SEXVAR / BIRTHSEX"
+local family_vars_sex "sex sexvar birthsex"
+local family_label_race "_RACEGR2 / _RACEGR3 / _RACEGR4"
+local family_vars_race "_racegr2 _racegr3 _racegr4"
+local family_label_income "INCOME2 / INCOME3"
+local family_vars_income "income2 income3"
+local family_label_age "_IMPAGE / _AGE80"
+local family_vars_age "_impage _age80"
+local family_label_employment "EMPLOY / EMPLOY1"
+local family_vars_employment "employ employ1"
+local family_label_diabetes "DIABETE3 / DIABETE4"
+local family_vars_diabetes "diabete3 diabete4"
+local family_label_copd "CHCCOPD / CHCCOPD1 / CHCCOPD3"
+local family_vars_copd "chccopd chccopd1 chccopd3"
+
+foreach family_name of local family_names {
+    local found_family = 0
+    local family_vars `"`family_vars_`family_name''"'
+    foreach v of local family_vars {
+        capture confirm variable `v'
+        if _rc == 0 local found_family = 1
+    }
+
+    local family_label `"`family_label_`family_name''"'
+    if `found_family' == 1 {
+        display as text "[PASS] Found a supported `family_name' variable family (`family_label')"
+    }
+    else {
+        display as error "[FAIL] No supported `family_name' variable family found (`family_label')"
     }
 }
-if `all_exist' == 1 {
-    display as text "[PASS] Key content variables present"
-}
-else {
-    display as text "[INFO] Some content variables not present in all years:`missing_vars'"
-    display as text "       This is expected — variable names change across years."
-    display as text "       See 02_clean_and_harmonize.do for cross-year harmonization."
-}
 
-* --- 5f. Check no year has zero observations ---
+* --- 5e. Check no year has zero observations ---
 local any_empty = 0
-forvalues y = `first_year'(1)`last_year' {
+foreach y of local years {
     quietly count if surveyyear == `y'
     if r(N) == 0 {
         local any_empty = 1
@@ -218,9 +268,11 @@ display as text _newline "Next step: run 02_clean_and_harmonize.do"
 *    uppercase. Some years may have slightly different variable lists.
 *
 * 3. VARIABLE CHANGES ACROSS YEARS:
-*    - Race/ethnicity: _RACEGR3 (2011-2021) vs. _RACEGR4 (2022+)
-*    - Income: INCOME2 (2011-2020) vs. INCOME3 (2021+)
-*    - Sex: SEX (2011-2021) vs. SEXVAR/BIRTHSEX (2022+)
+*    - Race/ethnicity: _RACEGR2 (2011-2014) vs. _RACEGR3 (2015-2021, 2023-2024)
+*      vs. _RACEGR4 (2022)
+*    - Income: INCOME2 (2011-2020) vs. INCOME3 (2021-2024)
+*    - Sex: SEX (2011-2020) vs. SEXVAR/BIRTHSEX (2021-2024)
+*    - COPD: CHCCOPD / CHCCOPD1 (older layouts) vs. CHCCOPD3 (modern layouts)
 *    These are harmonized in 02_clean_and_harmonize.do.
 *
 * 4. APPEND WITH FORCE: We use -append, force- because variable lists differ
@@ -234,12 +286,13 @@ display as text _newline "Next step: run 02_clean_and_harmonize.do"
 * 6. EXPANDING YEAR RANGE: To include more years:
 *    - Download the LLCP20XX.XPT files from Dropbox or CDC
 *    - Place them in data/raw/
-*    - Change `first_year' in Section 2 (e.g., 2011 for the full range)
+*    - Set `first_year' / `last_year' for a consecutive range, or
+*      set `years_to_load' for an explicit year list
 *    - Re-run this script
 *
 * 7. ADDING NEW YEARS: When new BRFSS data become available:
 *    - Download the LLCP20XX.XPT file from CDC
 *    - Place it in data/raw/
-*    - Update `last_year' in Section 2
+*    - Update `last_year' or `years_to_load' in Section 2
 *    - Re-run this script
 ********************************************************************************

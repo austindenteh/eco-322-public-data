@@ -8,14 +8,19 @@
 #
 # Input:   output/brfss_appended.rds  (from 01_load_and_append.R)
 # Output:  output/brfss_clean.rds
-#          output/brfss_clean.dta  (for Stata users)
+#          output/brfss_clean_from_r.dta  (optional R export for Stata users)
 #
-# Usage:   Set brfss_root to the brfss/ directory, then source this script.
+# Usage:   Run from brfss/, from the repo root, or set BRFSS_ROOT explicitly.
 #
 # Key harmonization issues:
-#   - Race/ethnicity: _racegr3 (2015-2021, 2023+) vs. _racegr4 (2022 only)
-#   - Income: income2 (2011-2020) vs. income3 (2021+)
-#   - Sex/gender: sex (2011-2021) vs. sexvar/birthsex (2022+)
+#   - Race/ethnicity: _racegr2 (2011-2014) vs. _racegr3 (2015-2021, 2023-2024)
+#     vs. _racegr4 (2022)
+#   - Income: income2 (2011-2020) vs. income3 (2021-2024)
+#   - Sex/gender: sex (2011-2020) vs. sexvar/birthsex (2021-2024)
+#   - Age: _impage (2011-2012) vs. _age80 (2013-2024)
+#   - Employment: employ (2011-2012) vs. employ1 (2013-2024)
+#   - Diabetes: diabete3 (2011-2014) vs. diabete4 (later years)
+#   - COPD: chccopd/chccopd1 (older layouts) vs. chccopd3 (modern layouts)
 #
 # Author:  Austin Denteh (legacy code and Claude Code)
 # Date:    February 2026
@@ -24,18 +29,58 @@
 library(haven)      # write_dta()
 library(dplyr)      # data wrangling
 library(tidyr)      # drop_na(), replace_na()
-library(survey)     # svydesign(), svyglm() for survey-weighted analysis
 library(broom)      # tidy() for regression output
+
+resolve_brfss_root <- function(script_name) {
+  env_root <- Sys.getenv("BRFSS_ROOT", unset = "")
+  candidates <- c(env_root, getwd(), dirname(getwd()), file.path(getwd(), "brfss"))
+  candidates <- unique(candidates[nzchar(candidates)])
+
+  for (path in candidates) {
+    if (dir.exists(path) &&
+        file.exists(file.path(path, "README.md")) &&
+        file.exists(file.path(path, "code", script_name))) {
+      return(normalizePath(path, winslash = "/", mustWork = TRUE))
+    }
+  }
+
+  stop(
+    paste(
+      "Could not locate the brfss/ directory.",
+      "Run this script from brfss/, brfss/code/, from the repo root,",
+      "or set BRFSS_ROOT to the brfss path."
+    )
+  )
+}
+
+coerce_numeric_if_present <- function(df, var_name) {
+  if (!var_name %in% names(df)) {
+    return(rep(NA_real_, nrow(df)))
+  }
+
+  x <- df[[var_name]]
+
+  if (inherits(x, c("haven_labelled", "labelled", "labelled_spss"))) {
+    x <- unclass(x)
+  }
+
+  if (is.character(x)) {
+    return(suppressWarnings(as.numeric(trimws(x))))
+  }
+
+  as.numeric(x)
+}
 
 # ============================================================================
 # 1. DEFINE PATHS
 # ============================================================================
 
-brfss_root <- "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/brfss"
+brfss_root <- resolve_brfss_root("02_clean_and_harmonize.R")
+cat(paste0("Using BRFSS root: ", brfss_root, "\n"))
 
 in_rds   <- file.path(brfss_root, "output", "brfss_appended.rds")
 out_rds  <- file.path(brfss_root, "output", "brfss_clean.rds")
-out_dta  <- file.path(brfss_root, "output", "brfss_clean.dta")
+out_dta  <- file.path(brfss_root, "output", "brfss_clean_from_r.dta")
 
 # ============================================================================
 # 2. LOAD APPENDED DATA
@@ -47,6 +92,21 @@ cat(paste0("Loaded: ", nrow(brfss), " observations, ", ncol(brfss), " variables\
 
 # Standardize column names to lowercase (should already be, but ensure)
 names(brfss) <- tolower(names(brfss))
+input_names <- names(brfss)
+
+support_vars <- c(
+  "sex", "_racegr2", "_racegr3", "_racegr4", "_impage",
+  "sexvar", "birthsex", "income2", "income3", "employ", "employ1",
+  "diabete3", "diabete4", "chccopd", "chccopd1", "chccopd3"
+)
+added_placeholder_vars <- setdiff(support_vars, names(brfss))
+
+for (var_name in added_placeholder_vars) {
+  brfss[[var_name]] <- NA_real_
+}
+
+imonth_num <- coerce_numeric_if_present(brfss, "imonth")
+iyear_num  <- coerce_numeric_if_present(brfss, "iyear")
 
 # ============================================================================
 # 3. HARMONIZE DEMOGRAPHICS
@@ -54,52 +114,53 @@ names(brfss) <- tolower(names(brfss))
 
 cat("\nHarmonizing demographics...\n")
 
-# Ensure backward-compatibility columns exist (may be absent if only recent years loaded)
-# This lets the case_when logic below work without errors for any year range.
-if (!"sex" %in% names(brfss))       brfss$sex <- NA_real_
-if (!"_racegr3" %in% names(brfss))  brfss$`_racegr3` <- NA_real_
-if (!"_racegr4" %in% names(brfss))  brfss$`_racegr4` <- NA_real_
-if (!"sexvar" %in% names(brfss))    brfss$sexvar <- NA_real_
-if (!"birthsex" %in% names(brfss))  brfss$birthsex <- NA_real_
-if (!"income2" %in% names(brfss))   brfss$income2 <- NA_real_
-if (!"income3" %in% names(brfss))   brfss$income3 <- NA_real_
-
 brfss <- brfss %>%
   mutate(
 
     # --- 3a. State FIPS code -------------------------------------------------
     statefips = `_state`,
 
-    # --- 3b. Age -------------------------------------------------------------
-    # _age80: Imputed age, top-coded at 80
-    age = `_age80`,
+    # --- 3b. Interview month and year ---------------------------------------
+    month = ifelse(imonth_num >= 1 & imonth_num <= 12, imonth_num, NA_real_),
+    year = iyear_num,
+
+    # --- 3c. Age -------------------------------------------------------------
+    # _age80 is the standard modern imputed age. _impage is the early fallback.
+    age = case_when(
+      !is.na(`_age80`) ~ as.numeric(`_age80`),
+      is.na(`_age80`) & !is.na(`_impage`) ~ as.numeric(`_impage`),
+      TRUE ~ NA_real_
+    ),
 
     # _ageg5yr: Age in five-year categories (CDC calculated)
     age_cat = `_ageg5yr`,
 
-    # --- 3c. Sex / Gender ----------------------------------------------------
-    # SEX used through 2021 (1=Male, 2=Female).
-    # 2022+: sexvar or birthsex.
-    # Harmonize to a single female indicator.
+    # --- 3d. Sex / Gender ----------------------------------------------------
+    # Prefer the most specific modern source variable available, then fall back.
     female = case_when(
-      surveyyear <= 2021 & sex == 2 ~ 1L,
-      surveyyear <= 2021 & sex == 1 ~ 0L,
-      # 2022+: try sexvar first, then birthsex
-      surveyyear >= 2022 & !is.na(sexvar) & sexvar == 2 ~ 1L,
-      surveyyear >= 2022 & !is.na(sexvar) & sexvar == 1 ~ 0L,
-      surveyyear >= 2022 & is.na(sexvar) & !is.na(birthsex) & birthsex == 2 ~ 1L,
-      surveyyear >= 2022 & is.na(sexvar) & !is.na(birthsex) & birthsex == 1 ~ 0L,
+      !is.na(sexvar) & sexvar == 2 ~ 1L,
+      !is.na(sexvar) & sexvar == 1 ~ 0L,
+      is.na(sexvar) & !is.na(birthsex) & birthsex == 2 ~ 1L,
+      is.na(sexvar) & !is.na(birthsex) & birthsex == 1 ~ 0L,
+      is.na(sexvar) & is.na(birthsex) & sex == 2 ~ 1L,
+      is.na(sexvar) & is.na(birthsex) & sex == 1 ~ 0L,
       TRUE ~ NA_integer_
     ),
 
-    # --- 3d. Race/Ethnicity --------------------------------------------------
+    # --- 3e. Race/Ethnicity --------------------------------------------------
     # The CDC's computed race/ethnicity variable changed names over time:
-    #   2015-2021: _racegr3 (1=White NH, 2=Black NH, 3=Other NH, 4=Multi NH, 5=Hispanic)
-    #   2022:      _racegr4 (1=White NH, 2=Black NH, 3=Asian NH, 4=AIAN NH, 5=Hispanic, 6=Other/Multi)
-    #   2023-2024: _racegr3 again (CDC reverted the name; same 1-5 coding)
-    # Instead of year-based conditions, we check which variable has data.
-    # _racegr3 is tried first (covers most years), _racegr4 fills in the rest.
+    #   2011-2014: _racegr2 (1=White NH, 2=Black NH, 3=Other NH, 4=Multi NH, 5=Hispanic)
+    #   2015-2021: _racegr3 (same 1-5 coding)
+    #   2022:      _racegr4 (same 1-5 coding, renamed because _RACE changed)
+    #   2023-2024: _racegr3 again
+    # Collapse the five-level CDC variable to four categories by combining
+    # Other NH and Multiracial NH.
     race_eth = case_when(
+      # Use _racegr2 wherever it has non-missing values (2011-2014)
+      `_racegr2` == 1 ~ 1L,  # White NH
+      `_racegr2` == 2 ~ 2L,  # Black NH
+      `_racegr2` == 5 ~ 3L,  # Hispanic
+      `_racegr2` %in% c(3, 4) ~ 4L,  # Other/Multi NH
       # Use _racegr3 wherever it has non-missing values (2015-2021, 2023+)
       `_racegr3` == 1 ~ 1L,  # White NH
       `_racegr3` == 2 ~ 2L,  # Black NH
@@ -109,7 +170,7 @@ brfss <- brfss %>%
       `_racegr4` == 1 ~ 1L,
       `_racegr4` == 2 ~ 2L,
       `_racegr4` == 5 ~ 3L,
-      `_racegr4` %in% c(3, 4, 6) ~ 4L,
+      `_racegr4` %in% c(3, 4) ~ 4L,
       TRUE ~ NA_integer_
     ),
 
@@ -119,7 +180,7 @@ brfss <- brfss %>%
     hispanic = as.integer(race_eth == 3),
     raceother = as.integer(race_eth == 4),
 
-    # --- 3e. Education -------------------------------------------------------
+    # --- 3f. Education -------------------------------------------------------
     # educa: 1-3=Less than HS, 4=HS grad, 5=Some college, 6=College grad, 9=Refused
     educ_cat = case_when(
       educa >= 1 & educa <= 3 ~ 1L,  # Less than HS
@@ -134,7 +195,7 @@ brfss <- brfss %>%
     somecollege = as.integer(educ_cat == 3),
     college     = as.integer(educ_cat == 4),
 
-    # --- 3f. Marital Status --------------------------------------------------
+    # --- 3g. Marital Status --------------------------------------------------
     # marital: 1=Married, 2=Divorced, 3=Widowed, 4=Separated,
     #          5=Never married, 6=Unmarried couple, 9=Refused
     marital_cat = case_when(
@@ -150,7 +211,7 @@ brfss <- brfss %>%
     widowed      = as.integer(marital_cat == 3),
     nevermarried = as.integer(marital_cat == 4),
 
-    # --- 3g. Income ----------------------------------------------------------
+    # --- 3h. Income ----------------------------------------------------------
     # income2 (2011-2020): 8 categories (1=<$10K ... 8=$75K+)
     # income3 (2021+): 11 categories — collapse to 8 for comparability
     income_cat = case_when(
@@ -160,18 +221,22 @@ brfss <- brfss %>%
       TRUE ~ NA_integer_
     ),
 
-    # --- 3h. Employment ------------------------------------------------------
-    # employ1: 1=Employed, 2=Self-employed, 3-4=Unemployed, 5=Homemaker,
-    #          6=Student, 7=Retired, 8=Unable to work
+    # --- 3i. Employment ------------------------------------------------------
+    # employ/employ1: 1=Employed, 2=Self-employed, 3-4=Unemployed,
+    #                 5=Homemaker, 6=Student, 7=Retired, 8=Unable to work
     working = case_when(
       employ1 %in% c(1, 2) ~ 1L,
       employ1 >= 3 & employ1 <= 8 ~ 0L,
+      is.na(employ1) & employ %in% c(1, 2) ~ 1L,
+      is.na(employ1) & employ >= 3 & employ <= 8 ~ 0L,
       TRUE ~ NA_integer_
     ),
 
     student = case_when(
       employ1 == 6 ~ 1L,
       employ1 >= 1 & employ1 <= 8 & employ1 != 6 ~ 0L,
+      is.na(employ1) & employ == 6 ~ 1L,
+      is.na(employ1) & employ >= 1 & employ <= 8 & employ != 6 ~ 0L,
       TRUE ~ NA_integer_
     )
   )
@@ -220,10 +285,12 @@ brfss <- brfss %>%
     # --- 4f. Chronic conditions ----------------------------------------------
     # Consistent coding: 1=Yes, 2=No
 
-    # Diabetes (diabete4: 1=Yes, 3=No/pre-diabetes)
+    # Diabetes (diabete3/diabete4: 1=Yes, 3=No/pre-diabetes)
     diabetes = case_when(
       diabete4 == 1 ~ 1L,
       diabete4 == 3 ~ 0L,
+      is.na(diabete4) & diabete3 == 1 ~ 1L,
+      is.na(diabete4) & diabete3 == 3 ~ 0L,
       TRUE ~ NA_integer_
     ),
 
@@ -256,22 +323,19 @@ brfss <- brfss %>%
   )
 
 # Handle COPD — variable name varies across years
-if ("chccopd" %in% names(brfss)) {
-  brfss <- brfss %>%
-    mutate(copd = case_when(
-      chccopd == 1 ~ 1L,
-      chccopd == 2 ~ 0L,
-      TRUE ~ NA_integer_
-    ))
-} else if ("chccopd1" %in% names(brfss)) {
-  brfss <- brfss %>%
-    mutate(copd = case_when(
-      chccopd1 == 1 ~ 1L,
-      chccopd1 == 2 ~ 0L,
-      TRUE ~ NA_integer_
-    ))
-} else {
-  brfss$copd <- NA_integer_
+brfss <- brfss %>%
+  mutate(copd = case_when(
+    chccopd3 == 1 ~ 1L,
+    chccopd3 == 2 ~ 0L,
+    chccopd == 1 ~ 1L,
+    chccopd == 2 ~ 0L,
+    chccopd1 == 1 ~ 1L,
+    chccopd1 == 2 ~ 0L,
+    TRUE ~ NA_integer_
+  ))
+
+if (length(added_placeholder_vars) > 0) {
+  brfss <- brfss %>% select(-any_of(added_placeholder_vars))
 }
 
 # ============================================================================
@@ -349,76 +413,91 @@ cat("\n--- BMI ---\n")
 print(summary(brfss$bmi))
 
 # ============================================================================
-# 7. EXAMPLE REGRESSIONS
+# 7. EXAMPLE ANALYSIS
 # ============================================================================
 
 cat("\n============================================\n")
-cat("   EXAMPLE REGRESSIONS\n")
+cat("   EXAMPLE ANALYSIS\n")
 cat("============================================\n\n")
 
-# --- 7a. Unweighted OLS: mental health days ~ demographics -------------------
-cat("--- OLS: Mental health days (unweighted) ---\n")
-ols_model <- lm(mental_days ~ female + age + factor(race_eth) +
-                  factor(educ_cat) + factor(surveyyear),
-                data = brfss)
-print(tidy(ols_model) %>% head(10))
-cat("  (showing first 10 coefficients; full model has year fixed effects)\n")
+# Keep the example section lightweight by using reproducible samples.
+# The cleaned outputs above are written before these examples run.
+example_seed <- 322
+example_max_n <- 25000L
 
-# --- 7b. Survey-weighted regression ------------------------------------------
-cat("\n--- Survey-weighted regression ---\n")
-cat("Setting up survey design...\n")
-
-# Identify the correct variable names for survey design
-psu_var <- if ("_psu" %in% names(brfss)) "_psu" else "x_psu"
-str_var <- if ("_ststr" %in% names(brfss)) "_ststr" else "x_ststr"
-wt_var  <- if ("_llcpwt" %in% names(brfss)) "_llcpwt" else "x_llcpwt"
-
-# Use a subset for the survey-weighted example (full data may be slow)
-# Pick the most recent year in the data
-example_year <- max(brfss$surveyyear, na.rm = TRUE)
-cat(paste0("Using year ", example_year, " for survey-weighted examples\n"))
-
-brfss_sub <- brfss %>%
-  filter(surveyyear == example_year) %>%
+# --- 7a. Unweighted OLS on a sampled analysis frame --------------------------
+cat("--- OLS: Mental health days (sampled, unweighted) ---\n")
+ols_df <- brfss %>%
   filter(!is.na(mental_days) & !is.na(female) & !is.na(age) &
          !is.na(race_eth) & !is.na(educ_cat))
 
-svy_design <- svydesign(
-  ids = as.formula(paste0("~ `", psu_var, "`")),
-  strata = as.formula(paste0("~ `", str_var, "`")),
-  weights = as.formula(paste0("~ `", wt_var, "`")),
-  data = brfss_sub,
-  nest = TRUE
-)
+if (nrow(ols_df) > example_max_n) {
+  set.seed(example_seed)
+  ols_df <- ols_df %>% slice_sample(n = example_max_n)
+  cat(paste0("Using ", example_max_n, " sampled rows for the OLS example\n"))
+} else {
+  cat(paste0("Using all ", nrow(ols_df), " eligible rows for the OLS example\n"))
+}
 
-svy_model <- svyglm(mental_days ~ female + age + factor(race_eth) +
-                       factor(educ_cat),
-                     design = svy_design)
-cat(paste0("\nSurvey-weighted OLS (", example_year, " only):\n"))
-print(tidy(svy_model))
+ols_model <- lm(mental_days ~ female + age + factor(race_eth) +
+                  factor(educ_cat) + factor(surveyyear),
+                data = ols_df)
+print(tidy(ols_model) %>% head(10))
+cat("  (showing first 10 coefficients; full model has year fixed effects)\n")
 
-# --- 7c. Survey-weighted logit: fair/poor health -----------------------------
-cat(paste0("\n--- Survey-weighted logit: Fair/poor health (", example_year, " only) ---\n"))
+# --- 7b. Weighted examples on the most recent year ---------------------------
+cat("\n--- Weighted examples ---\n")
+cat("Setting up lightweight weighted examples for the most recent year...\n")
 
-brfss_sub2 <- brfss %>%
+# Identify the correct weight variable name
+wt_var <- if ("_llcpwt" %in% names(brfss)) "_llcpwt" else "x_llcpwt"
+
+# Pick the most recent year in the data and sample complete cases
+# so the examples finish quickly on typical laptops.
+example_year <- max(brfss$surveyyear, na.rm = TRUE)
+cat(paste0("Using year ", example_year, " for weighted examples\n"))
+
+brfss_sub <- brfss %>%
   filter(surveyyear == example_year) %>%
-  filter(!is.na(fair_or_poor) & !is.na(female) & !is.na(age) &
-         !is.na(race_eth) & !is.na(educ_cat))
+  filter(!is.na(fair_or_poor) & !is.na(mental_days) & !is.na(female) &
+         !is.na(age) & !is.na(race_eth) & !is.na(educ_cat) &
+         !is.na(.data[[wt_var]]) & .data[[wt_var]] > 0)
 
-svy_design2 <- svydesign(
-  ids = as.formula(paste0("~ `", psu_var, "`")),
-  strata = as.formula(paste0("~ `", str_var, "`")),
-  weights = as.formula(paste0("~ `", wt_var, "`")),
-  data = brfss_sub2,
-  nest = TRUE
+if (nrow(brfss_sub) > example_max_n) {
+  set.seed(example_seed)
+  brfss_sub <- brfss_sub %>% slice_sample(n = example_max_n)
+  cat(paste0("Using ", example_max_n,
+             " sampled rows from ", example_year,
+             " for the weighted examples\n"))
+} else {
+  cat(paste0("Using all ", nrow(brfss_sub),
+             " eligible rows from ", example_year,
+             " for the weighted examples\n"))
+}
+
+example_weights <- brfss_sub[[wt_var]]
+example_glm_weights <- example_weights / mean(example_weights, na.rm = TRUE)
+
+cat(paste0("\nWeighted mean of fair/poor health (", example_year, " sample):\n"))
+print(setNames(weighted.mean(brfss_sub$fair_or_poor, w = example_weights, na.rm = TRUE),
+               "fair_or_poor"))
+
+wls_model <- lm(
+  mental_days ~ female + age + factor(race_eth) + factor(educ_cat),
+  data = brfss_sub,
+  weights = example_weights
 )
+cat(paste0("\nWeighted OLS (", example_year, " sample):\n"))
+print(tidy(wls_model))
 
-logit_model <- svyglm(fair_or_poor ~ female + age + factor(race_eth) +
-                         factor(educ_cat),
-                       design = svy_design2,
-                       family = quasibinomial())
-cat("\nSurvey-weighted logit:\n")
-print(tidy(logit_model))
+wlogit_model <- glm(
+  fair_or_poor ~ female + age + factor(race_eth) + factor(educ_cat),
+  data = brfss_sub,
+  family = quasibinomial(),
+  weights = example_glm_weights
+)
+cat(paste0("\nWeighted logit (", example_year, " sample):\n"))
+print(tidy(wlogit_model))
 
 cat("\n============================================\n")
 cat("   DONE\n")
@@ -428,28 +507,36 @@ cat("============================================\n")
 # NOTES FOR USERS:
 #
 # 1. SURVEY WEIGHTS ARE ESSENTIAL: The BRFSS uses a complex survey design.
-#    ALWAYS use the survey package (svydesign + svyglm) for population-
-#    representative estimates. Unweighted analyses are for quick checks only.
+#    In this starter, the weighted examples use _LLCPWT directly in
+#    weighted.mean(), lm(..., weights = ...), and glm(..., weights = ...).
+#    The logistic example rescales weights to mean 1 for numerical stability.
+#    This is a simple weighted workflow, not full design-based survey
+#    inference. Unweighted analyses are for quick checks only.
 #
 # 2. COLUMN NAMES WITH UNDERSCORES: CDC calculated variables start with _.
 #    In R, access them with backticks: brfss$`_age80` or brfss[["_age80"]].
 #    This script creates clean names (age, bmi, etc.) to avoid this issue.
 #
 # 3. CROSS-YEAR HARMONIZATION: Variables harmonized here (race_eth,
-#    income_cat, female) are comparable across all years 2011-2024,
-#    regardless of which year range you loaded.
+#    income_cat, female, diabetes, working, and copd) are built from whichever source variable is
+#    present in a given year, which makes the transition-year logic more robust.
 #
 # 4. MEMORY MANAGEMENT: With 5+ million rows, consider:
 #    - Using data.table instead of dplyr for faster operations
 #    - Subsetting to years of interest before analysis
 #    - Using arrow::open_dataset() for out-of-memory analysis
 #
-# 5. SURVEY-WEIGHTED EXAMPLES: The examples use the most recent year to
-#    keep runtime reasonable. For multi-year pooled analysis, you may need
-#    to adjust weights. See CDC documentation on combining BRFSS years.
+# 5. WEIGHTED EXAMPLES: The examples use a reproducible sample from the most
+#    recent year to keep runtime reasonable. For final estimates, re-run your
+#    own model on the full analysis sample. For multi-year pooled analysis, you
+#    may need to adjust weights. See CDC documentation on combining BRFSS years.
 #
-# 6. SEXVAR vs. SEX: Starting in 2022, the BRFSS added gender identity
-#    questions. SEXVAR captures sex assigned at birth. If you need gender
-#    identity, look for SOMALE/SOFEMALE (sexual orientation) and TRNSGNDR
+# 6. OUTPUTS: This script writes brfss_clean.rds and a separate
+#    brfss_clean_from_r.dta export so it does not overwrite the Stata-native
+#    brfss_clean.dta produced by 02_clean_and_harmonize.do.
+#
+# 7. SEXVAR vs. SEX: The 2021-2024 public files use SEXVAR, and some years
+#    also include BIRTHSEX. Older years use SEX. If you need gender identity,
+#    look for SOMALE/SOFEMALE (sexual orientation) and TRNSGNDR
 #    (transgender status) variables in 2022+ data.
 ################################################################################

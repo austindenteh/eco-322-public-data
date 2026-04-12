@@ -27,6 +27,8 @@ brfss/
 ├── code/
 │   ├── 01_load_and_append.do  ← Import XPT files, append all years (Stata)
 │   ├── 01_load_and_append.R   ← Same in R
+│   ├── 01_load_and_append_optional_low_memory.do  ← Optional low-memory Stata loader
+│   ├── 01_load_and_append_optional_low_memory.R  ← Optional low-memory R loader
 │   ├── 02_clean_and_harmonize.do  ← Harmonize variables across years (Stata)
 │   └── 02_clean_and_harmonize.R   ← Same in R
 ├── data/
@@ -58,7 +60,14 @@ Place the `.XPT` files in `data/raw/`.
 3. Repeat for each year you want
 4. Place the `.XPT` files in `data/raw/`
 
-> **Tip:** The scripts default to **2023–2024** to keep file sizes manageable. To use additional years, download the corresponding `.XPT` files and change `first_year` in the `01_load_and_append` script (see comments in the script for details).
+> **Tip:** The scripts default to **2023–2024** to keep file sizes manageable. To use additional years, download the corresponding `.XPT` files and then either set `first_year` / `last_year` for a consecutive range or set `years_to_load` for an explicit year list in the `01_load_and_append` scripts.
+
+The scripts auto-detect the `brfss/` folder if you run them either:
+- from the `brfss/` directory, or
+- from the `brfss/code/` directory, or
+- from the repo root
+
+You can also set `BRFSS_ROOT` in R or `global brfss_root` in Stata if you want to override the auto-detected path.
 
 ### Step 2: Load and Append All Years
 
@@ -68,38 +77,148 @@ cd "/path/to/brfss"
 do code/01_load_and_append.do
 ```
 
+Or from the repo root:
+```stata
+cd "/path/to/eco-322-public-data"
+do brfss/code/01_load_and_append.do
+```
+
 **R:**
 ```r
+setwd("/path/to/brfss")
 source("code/01_load_and_append.R")
 ```
 
-This imports each year's `.XPT` file, adds a `surveyyear` identifier, and appends everything into a single stacked dataset (`output/brfss_appended.dta` or `.rds`).
+Or from the repo root:
+```r
+setwd("/path/to/eco-322-public-data")
+source("brfss/code/01_load_and_append.R")
+```
+
+This imports each year's `.XPT` file, adds a `surveyyear` identifier, and appends everything into a single stacked dataset. Outputs are language-specific:
+- Stata: `output/brfss_appended.dta`
+- R: `output/brfss_appended.rds`
+- Optional R export for Stata users: `output/brfss_appended_from_r.dta`
+
+Inside the main `01_*` scripts, you can either:
+- set `first_year` / `last_year` for a consecutive range, or
+- set `years_to_load` for an explicit non-consecutive year list
+
+Examples:
+- Stata: `local years_to_load "2011 2014 2024"`
+- R: `years_to_load <- c(2011, 2014, 2024)`
+
+### Optional Low-Memory Workflows
+
+If you want to load many BRFSS years on a machine with limited RAM, you can use the optional low-memory `01_*` script for your language instead of the standard one.
+
+Use:
+- `01_load_and_append.do` or `01_load_and_append_optional_low_memory.do` in Stata
+- `01_load_and_append.R` or `01_load_and_append_optional_low_memory.R` in R
+
+Do not run both `01_*` scripts for the same language. Pick one path, then continue to Step 3 exactly as usual.
+
+**Optional low-memory Stata loader**
+
+```stata
+cd "/path/to/brfss"
+do code/01_load_and_append_optional_low_memory.do
+```
+
+Use this instead of `01_load_and_append.do` if you want a smaller appended Stata dataset and year-by-year temporary files. This Stata version still imports a full `.XPT` year before dropping unused columns, so the memory savings are smaller than in R, but it still helps by shrinking the kept columns before append and before the downstream harmonization step.
+
+Inside the script, you can:
+- set `local years_to_load "2011 2014 2024"` for non-consecutive years
+- add stable extra raw variables with `local extra_keep_vars "..."`
+- add alias families with `local extra_var_families`
+
+Example:
+
+```stata
+local years_to_load "2011 2014 2024"
+
+local extra_var_families ///
+    `" "dental_visit:_denvst2 _denvst3" "'
+```
+
+This creates one `dental_visit` column by filling from the listed aliases in order. If a family is absent in some loaded years, the script reports which years matched and leaves unmatched years missing for that added column.
+
+**Optional low-memory R loader**
+
+```r
+setwd("/path/to/brfss")
+source("code/01_load_and_append_optional_low_memory.R")
+```
+
+Use this instead of `01_load_and_append.R`, not in addition to it. For most users, `01_load_and_append.R` remains the default and simplest choice.
+
+This optional script:
+- reads one year at a time
+- keeps only the raw columns needed by `02_clean_and_harmonize.R`
+- can use `years_to_load <- c(...)` for non-consecutive years
+- supports user-added variables through `extra_keep_vars` and `extra_var_families`
+- still writes the usual `output/brfss_appended.rds`, so Step 3 stays the same
+
+Example:
+
+```r
+years_to_load <- c(2011, 2014, 2024)
+
+extra_var_families <- list(
+  dental_visit = c("_denvst2", "_denvst3")
+)
+```
+
+This creates a single `dental_visit` column by coalescing the listed aliases in order. If a variable family is absent in some loaded years, the optional script reports which years matched and leaves the unmatched years missing for that added column.
+
+Use the standard `01_load_and_append.R` instead if you want the full BRFSS raw file or many optional-module variables.
 
 ### Step 3: Clean and Harmonize
 
 **Stata:**
 ```stata
+cd "/path/to/brfss"
 do code/02_clean_and_harmonize.do
+```
+
+Or from the repo root:
+```stata
+cd "/path/to/eco-322-public-data"
+do brfss/code/02_clean_and_harmonize.do
 ```
 
 **R:**
 ```r
+setwd("/path/to/brfss")
 source("code/02_clean_and_harmonize.R")
 ```
 
-This creates harmonized versions of variables that changed names or coding across years, cleans health outcomes, and demonstrates survey-weighted analysis.
+Or from the repo root:
+```r
+setwd("/path/to/eco-322-public-data")
+source("brfss/code/02_clean_and_harmonize.R")
+```
+
+This creates harmonized versions of variables that changed names or coding across years, cleans health outcomes, and includes lightweight example analysis. Outputs are language-specific:
+- Stata: `output/brfss_clean.dta`
+- R: `output/brfss_clean.rds`
+- Optional R export for Stata users: `output/brfss_clean_from_r.dta`
 
 ## Variable Harmonization
 
-Several key variables changed names or coding over the 2011-2024 period:
+Several key variables changed names or coding over the 2011–2024 period:
 
-| Variable | 2011-2021 | 2022+ | Harmonized Name |
-|---|---|---|---|
-| Race/ethnicity | `_RACEGR3` (5 cat) | `_RACEGR4` (6 cat) | `race_eth` (4 cat) |
-| Income | `INCOME2` (8 cat) | `INCOME3` (11 cat) | `income_cat` (8 cat) |
-| Sex | `SEX` | `SEXVAR`/`BIRTHSEX` | `female` (binary) |
+| Variable | Source variable(s) by year | Harmonized Name |
+|---|---|---|
+| Age | `_IMPAGE` (2011–2012), `_AGE80` (2013–2024) | `age` |
+| Race/ethnicity | `_RACEGR2` (2011–2014), `_RACEGR3` (2015–2021, 2023–2024), `_RACEGR4` (2022) | `race_eth` |
+| Income | `INCOME2` (2011–2020), `INCOME3` (2021–2024) | `income_cat` |
+| Employment | `EMPLOY` (2011–2012), `EMPLOY1` (2013–2024) | `working`, `student` |
+| Sex | `SEX` (2011–2020), `SEXVAR` with `BIRTHSEX` fallback when present (2021–2024) | `female` |
+| Diabetes | `DIABETE3` (2011–2018), `DIABETE4` (2019–2024) | `diabetes` |
+| COPD | `CHCCOPD` / `CHCCOPD1` in older public-file layouts, `CHCCOPD3` in modern layouts | `copd` |
 
-The cleaning scripts handle all three changes automatically.
+The cleaning scripts resolve these transitions automatically by checking which source variable is present.
 
 ## Key Variables
 
@@ -111,11 +230,19 @@ The cleaning scripts handle all three changes automatically.
 | `_STSTR` | Sample design stratification variable |
 | `_PSU` | Primary sampling unit |
 
-**Always use these in survey commands:**
+**Use these design variables in a way that matches your task:**
 ```stata
 svyset _psu [pweight = _llcpwt], strata(_ststr)
-svy: regress outcome treatment controls
+svy: tab surveyyear fair_or_poor, row
+regress outcome treatment controls [pweight = _llcpwt]
 ```
+
+In this starter, the Stata examples keep `svyset` for descriptive survey tables
+and use `[pweight = _llcpwt]` directly in regression commands. The R examples
+use `_LLCPWT` directly in `weighted.mean()`, `lm(..., weights = ...)`, and
+`glm(..., weights = ...)` as a simple weighted workflow. If you want full
+design-based survey inference in R, use the `survey` package with `_LLCPWT`,
+`_STSTR`, and `_PSU`.
 
 ### Demographics
 
@@ -157,7 +284,7 @@ Variables starting with `_` (underscore) are **CDC-calculated** variables derive
 |---|---|
 | `_AGE80` | Imputed age, top-coded at 80 |
 | `_AGEG5YR` | Age in 5-year categories |
-| `_RACEGR3`/`_RACEGR4` | Race/ethnicity (computed) |
+| `_RACEGR2`/`_RACEGR3`/`_RACEGR4` | Race/ethnicity (computed) |
 | `_BMI5` | BMI * 100 |
 | `_BMI5CAT` | BMI category |
 | `_SMOKER3` | Four-level smoking status |
@@ -195,9 +322,21 @@ Module participation varies by state and year. See `docs/20XX-ModuleAnalysis.pdf
 
 The BRFSS uses a **stratified, disproportionate random sample** design. For correct standard errors and confidence intervals:
 
-1. **Always use survey weights** (`_LLCPWT`) for point estimates
-2. **Always use `svy` commands** (Stata) or the `survey` package (R) for standard errors
-3. **Never ignore the survey design** — naive standard errors will be wrong
+1. **Always use survey weights** (`_LLCPWT`) for weighted point estimates
+2. **Use PSU and strata design information** when you want design-based standard errors or official survey-style inference
+3. **Never ignore the survey design entirely** — naive unweighted analyses can mislead
+
+The bundled examples keep `svyset` for descriptive survey tables in Stata and
+use direct weights in regression examples:
+- Stata: `[pweight = _llcpwt]`
+- R: `weighted.mean()`, `lm(..., weights = ...)`, and `glm(..., weights = ...)`
+
+Those R examples are a simple weighted workflow, not full design-based survey
+inference. If you want full survey-design standard errors in R, use the
+`survey` package with `_LLCPWT`, `_STSTR`, and `_PSU`.
+
+The example-analysis sections also use reproducible sampling so the
+demonstrations finish faster on a typical laptop.
 
 For more details, see `docs/Complex-Sampling-Weights-*.pdf`.
 
@@ -227,9 +366,13 @@ The `docs/` folder includes:
 The scripts default to 2023–2024, but the full dataset (2011–2024) is available on Dropbox and from the CDC. To expand:
 
 1. Download additional `LLCP20XX.XPT` files and place them in `data/raw/`
-2. In both `01_load_and_append` scripts, change `first_year` to the earliest year you want (e.g., `2011`)
+2. In either `01_load_and_append` script, either:
+   - set `first_year` / `last_year` for a consecutive range, or
+   - set `years_to_load` for an explicit non-consecutive year list
 3. Re-run both scripts
 4. The `02_clean_and_harmonize` scripts handle variable name changes automatically — no edits needed
+
+The optional low-memory loaders support the same choice in both languages.
 
 ## Updating for New Years
 

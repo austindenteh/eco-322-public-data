@@ -9,14 +9,26 @@
 * Input:   output/brfss_appended.dta  (from 01_load_and_append.do)
 * Output:  output/brfss_clean.dta
 *
-* Usage:   Run after 01_load_and_append.do from the brfss/ directory:
+* Usage:   Run after 01_load_and_append.do from the brfss/ directory,
+*          brfss/code/, or repo root:
 *            cd "/path/to/brfss"
 *            do code/02_clean_and_harmonize.do
+*          or
+*            cd "/path/to/brfss/code"
+*            do 02_clean_and_harmonize.do
+*          or
+*            cd "/path/to/eco-322-public-data"
+*            do brfss/code/02_clean_and_harmonize.do
 *
 * Key harmonization issues:
-*   - Race/ethnicity: _RACEGR3 (2015-2021, 2023+) vs. _RACEGR4 (2022 only)
-*   - Income: INCOME2 (2011-2020) vs. INCOME3 (2021+)
-*   - Sex/gender: SEX (2011-2021) vs. SEXVAR/BIRTHSEX (2022+)
+*   - Race/ethnicity: _RACEGR2 (2011-2014) vs. _RACEGR3 (2015-2021, 2023-2024)
+*     vs. _RACEGR4 (2022)
+*   - Income: INCOME2 (2011-2020) vs. INCOME3 (2021-2024)
+*   - Sex/gender: SEX (2011-2020) vs. SEXVAR/BIRTHSEX (2021-2024)
+*   - Age: _IMPAGE (2011-2012) vs. _AGE80 (2013-2024)
+*   - Employment: EMPLOY (2011-2012) vs. EMPLOY1 (2013-2024)
+*   - Diabetes: DIABETE3 (2011-2014) vs. DIABETE4 (later years)
+*   - COPD: CHCCOPD / CHCCOPD1 (older layouts) vs. CHCCOPD3 (modern layouts)
 *   - Calculated BMI: _BMI5 available throughout, but coding may shift
 *
 * Author:  Austin Denteh (legacy code and Claude Code)
@@ -30,8 +42,27 @@ set more off
 * 1. DEFINE PATHS
 * ============================================================================
 
-global brfss_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/brfss"
+local cwd `"`c(pwd)'"'
+if "$brfss_root" != "" & fileexists("$brfss_root/code/02_clean_and_harmonize.do") {
+    global brfss_root "$brfss_root"
+}
+else if fileexists("code/02_clean_and_harmonize.do") & fileexists("README.md") {
+    global brfss_root "`cwd'"
+}
+else if fileexists("02_clean_and_harmonize.do") & fileexists("../README.md") {
+    global brfss_root "`cwd'/.."
+}
+else if fileexists("brfss/code/02_clean_and_harmonize.do") & fileexists("brfss/README.md") {
+    global brfss_root "`cwd'/brfss"
+}
+else {
+    display as error "Could not locate the brfss/ directory."
+    display as error "Run from brfss/, brfss/code/, the repo root, or set global brfss_root first."
+    exit 198
+}
+
 cd "$brfss_root"
+display as text "Using BRFSS root: $brfss_root"
 
 local in_dta   "output/brfss_appended.dta"
 local out_dta  "output/brfss_clean.dta"
@@ -47,17 +78,19 @@ display as text "Loaded appended BRFSS: " _N " observations, " c(k) " variables.
 * 3. SURVEY DESIGN VARIABLES
 * ============================================================================
 * The BRFSS uses a complex survey design with stratification and clustering.
-* For correct standard errors, you MUST use survey commands (svyset).
+* Keep the survey design metadata available with -svyset- for descriptive
+* tables and other design-based analysis. In many economics applications,
+* regressions are instead run with pweights directly.
 *
 * Key variables:
 *   _PSU    = Primary Sampling Unit
 *   _STSTR  = Sample design stratification variable
 *   _LLCPWT = Final weight (landline and cell phone combined)
 
-* Set survey design for all subsequent analyses
-svyset _psu [pweight = _llcpwt], strata(_ststr)
+* Keep the design available for descriptive survey commands.
+svyset _psu [pweight = _llcpwt], strata(_ststr) singleunit(centered)
 
-display as text "Survey design set: svyset _psu [pw=_llcpwt], strata(_ststr)"
+display as text "Survey design set: svyset _psu [pw=_llcpwt], strata(_ststr) singleunit(centered)"
 
 * ============================================================================
 * 4. HARMONIZE DEMOGRAPHICS
@@ -79,30 +112,26 @@ gen year = iyear
 label var year "Interview year"
 
 * --- 4c. Age -----------------------------------------------------------------
-* _AGE80: Imputed age, top-coded at 80
+* _AGE80 is the standard modern imputed age. _IMPAGE is the early fallback.
 * _AGEG5YR: Age in five-year categories (calculated variable)
-gen age = _age80
+gen age = .
+capture replace age = _age80 if !missing(_age80)
+capture replace age = _impage if missing(age) & !missing(_impage)
 label var age "Age in years (imputed, top-coded at 80)"
 
 gen age_cat = _ageg5yr
 label var age_cat "Age in 5-year categories (CDC calculated)"
 
 * --- 4d. Sex / Gender -------------------------------------------------------
-* SEX was used through 2021. Starting in 2022, the BRFSS uses SEXVAR
-* (sex assigned at birth) and/or BIRTHSEX.
-* We harmonize to a single 'female' indicator.
+* Prefer the most specific modern source variable available, then fall back.
 
 gen female = .
-* 2011-2021: SEX variable (1=Male, 2=Female)
-* (capture protects against SEX not existing when only 2022+ data loaded)
-capture replace female = (sex == 2) if surveyyear <= 2021 & !missing(sex)
-capture replace female = 0 if sex == 1 & surveyyear <= 2021
-* 2022+: Look for SEXVAR or BIRTHSEX
-capture replace female = (sexvar == 2) if surveyyear >= 2022 & !missing(sexvar)
-capture replace female = 0 if sexvar == 1 & surveyyear >= 2022
-* Fallback: if BIRTHSEX exists
+capture replace female = (sexvar == 2) if !missing(sexvar)
+capture replace female = 0 if sexvar == 1
 capture replace female = (birthsex == 2) if missing(female) & !missing(birthsex)
 capture replace female = 0 if birthsex == 1 & missing(female)
+capture replace female = (sex == 2) if missing(female) & !missing(sex)
+capture replace female = 0 if sex == 1 & missing(female)
 
 label var female "Female (1=yes, 0=no)"
 label define female_lbl 0 "Male" 1 "Female"
@@ -110,16 +139,22 @@ label values female female_lbl
 
 * --- 4e. Race/Ethnicity -----------------------------------------------------
 * The CDC's computed race/ethnicity variable changed names over time:
-*   2011-2014: _RACEGR2 (not used here; scripts start at 2015+)
-*   2015-2021: _RACEGR3 (1=White NH, 2=Black NH, 3=Other NH, 4=Multi NH, 5=Hispanic)
-*   2022:      _RACEGR4 (1=White NH, 2=Black NH, 3=Asian NH, 4=AIAN NH, 5=Hispanic, 6=Other/Multi)
-*   2023-2024: _RACEGR3 again (CDC reverted the name; same 1-5 coding as pre-2022)
+*   2011-2014: _RACEGR2 (1=White NH, 2=Black NH, 3=Other NH, 4=Multi NH, 5=Hispanic)
+*   2015-2021: _RACEGR3 (same 1-5 coding)
+*   2022:      _RACEGR4 (same 1-5 coding, renamed because _RACE changed)
+*   2023-2024: _RACEGR3 again
 *
-* Instead of year-based conditions (which break when CDC changes names),
-* we check which variable has non-missing values for each observation.
+* Collapse the five-level CDC variable to four categories by combining
+* Other NH and Multiracial NH.
 
 gen race_eth = .
 label var race_eth "Race/ethnicity (harmonized)"
+
+* Use _RACEGR2 wherever it has non-missing values (2011-2014)
+capture replace race_eth = 1 if _racegr2 == 1 & missing(race_eth)   // White NH
+capture replace race_eth = 2 if _racegr2 == 2 & missing(race_eth)   // Black NH
+capture replace race_eth = 3 if _racegr2 == 5 & missing(race_eth)   // Hispanic
+capture replace race_eth = 4 if (_racegr2 == 3 | _racegr2 == 4) & missing(race_eth)  // Other/Multi NH
 
 * Use _RACEGR3 wherever it has non-missing values (2015-2021, 2023+)
 capture replace race_eth = 1 if _racegr3 == 1 & missing(race_eth)   // White NH
@@ -131,7 +166,7 @@ capture replace race_eth = 4 if (_racegr3 == 3 | _racegr3 == 4) & missing(race_e
 capture replace race_eth = 1 if _racegr4 == 1 & missing(race_eth)   // White NH
 capture replace race_eth = 2 if _racegr4 == 2 & missing(race_eth)   // Black NH
 capture replace race_eth = 3 if _racegr4 == 5 & missing(race_eth)   // Hispanic
-capture replace race_eth = 4 if (_racegr4 == 3 | _racegr4 == 4 | _racegr4 == 6) & missing(race_eth)  // Other/Multi/Asian/AIAN NH
+capture replace race_eth = 4 if (_racegr4 == 3 | _racegr4 == 4) & missing(race_eth)  // Other/Multi NH
 
 label define race_eth_lbl 1 "White non-Hispanic" 2 "Black non-Hispanic" ///
     3 "Hispanic" 4 "Other/Multiracial non-Hispanic"
@@ -216,10 +251,15 @@ label define income_cat_lbl 1 "< $10,000" 2 "$10-15,000" 3 "$15-20,000" ///
 label values income_cat income_cat_lbl
 
 * --- 4i. Employment ----------------------------------------------------------
-* EMPLOY1: 1=Employed for wages, 2=Self-employed, 3=Unemployed 1yr+,
-*          4=Unemployed <1yr, 5=Homemaker, 6=Student, 7=Retired, 8=Unable to work
-gen working = (employ1 == 1 | employ1 == 2) if employ1 >= 1 & employ1 <= 8
-gen student = (employ1 == 6) if employ1 >= 1 & employ1 <= 8
+* EMPLOY/EMPLOY1: 1=Employed for wages, 2=Self-employed, 3=Unemployed 1yr+,
+*                 4=Unemployed <1yr, 5=Homemaker, 6=Student, 7=Retired, 8=Unable to work
+gen working = .
+capture replace working = (employ1 == 1 | employ1 == 2) if employ1 >= 1 & employ1 <= 8
+capture replace working = (employ == 1 | employ == 2) if missing(working) & employ >= 1 & employ <= 8
+
+gen student = .
+capture replace student = (employ1 == 6) if employ1 >= 1 & employ1 <= 8
+capture replace student = (employ == 6) if missing(student) & employ >= 1 & employ <= 8
 label var working "Currently employed (wages or self-employed)"
 label var student "Student"
 
@@ -280,6 +320,8 @@ label var current_smoker "Current smoker (daily or some days)"
 * Diabetes
 capture gen diabetes = (diabete4 == 1) if diabete4 == 1 | diabete4 == 3
 capture replace diabetes = 0 if diabete4 == 3
+capture replace diabetes = (diabete3 == 1) if missing(diabetes) & (diabete3 == 1 | diabete3 == 3)
+capture replace diabetes = 0 if missing(diabetes) & diabete3 == 3
 label var diabetes "Ever told have diabetes"
 
 * Asthma
@@ -290,9 +332,12 @@ capture gen asthma_current = (asthnow == 1) if asthnow == 1 | asthnow == 2
 label var asthma_current "Still have asthma"
 
 * COPD
-capture gen copd = (chccopd == 1) if chccopd == 1 | chccopd == 2
-* Older years may use chccopd1 or chccopd2
+capture gen copd = (chccopd3 == 1) if chccopd3 == 1 | chccopd3 == 2
+capture replace copd = 0 if chccopd3 == 2
+capture replace copd = (chccopd == 1) if missing(copd) & (chccopd == 1 | chccopd == 2)
+capture replace copd = 0 if missing(copd) & chccopd == 2
 capture replace copd = (chccopd1 == 1) if missing(copd) & (chccopd1 == 1 | chccopd1 == 2)
+capture replace copd = 0 if missing(copd) & chccopd1 == 2
 label var copd "Ever told have COPD/emphysema/chronic bronchitis"
 
 * Heart disease (angina or coronary heart disease)
@@ -370,13 +415,13 @@ display as text "============================================"
 display as text _newline "--- OLS: Mental health days (unweighted) ---"
 regress mental_days female age i.race_eth i.educ_cat i.surveyyear
 
-* --- 8b. Survey-weighted regression ------------------------------------------
-display as text _newline "--- Survey-weighted: Mental health days ---"
-svy: regress mental_days female age i.race_eth i.educ_cat i.surveyyear
+* --- 8b. Weighted regression with pweights -----------------------------------
+display as text _newline "--- Weighted OLS: Mental health days [pweight] ---"
+regress mental_days female age i.race_eth i.educ_cat i.surveyyear [pweight = _llcpwt]
 
-* --- 8c. Survey-weighted logit: fair/poor health -----------------------------
-display as text _newline "--- Survey-weighted logit: Fair/poor health ---"
-svy: logit fair_or_poor female age i.race_eth i.educ_cat i.surveyyear
+* --- 8c. Weighted logit with pweights ----------------------------------------
+display as text _newline "--- Weighted logit: Fair/poor health [pweight] ---"
+logit fair_or_poor female age i.race_eth i.educ_cat i.surveyyear [pweight = _llcpwt]
 
 display as text _newline "============================================"
 display as text "   DONE"
@@ -386,22 +431,30 @@ display as text "============================================"
 * NOTES FOR USERS:
 *
 * 1. SURVEY WEIGHTS ARE ESSENTIAL: The BRFSS uses a complex survey design.
-*    ALWAYS use -svy- commands for population-representative estimates.
-*    Unweighted analyses are shown only for comparison / quick checks.
+*    Keep -svyset- available for descriptive tables and other design-based
+*    summaries. In this starter, the regression examples use pweights directly
+*    in -regress- and -logit-. Unweighted analyses are shown only for quick
+*    checks / comparison.
 *
 * 2. CROSS-YEAR COMPARABILITY: Variables harmonized here (race_eth,
-*    income_cat, female) are designed to be comparable across all years.
+*    income_cat, female, diabetes, working) are built from whichever source variable is
+*    present in a given year, which makes the transition-year logic more robust.
 *    For variables NOT harmonized, check the codebook for each year.
 *
-* 3. VARIABLE NAMING CHANGES IN 2022+:
-*    - _RACEGR3 -> _RACEGR4 (race categories expanded)
-*    - INCOME2 -> INCOME3 (income categories expanded to 11)
-*    - SEX -> SEXVAR/BIRTHSEX (gender identity questions added)
-*    This script handles all three changes.
+* 3. VARIABLE NAMING CHANGES:
+*    - _RACEGR2 -> _RACEGR3 -> _RACEGR4 -> _RACEGR3
+*    - INCOME2 -> INCOME3
+*    - SEX -> SEXVAR/BIRTHSEX
+*    - _IMPAGE -> _AGE80
+*    - EMPLOY -> EMPLOY1
+*    - DIABETE3 -> DIABETE4
+*    This script handles these transitions by checking whichever source
+*    variable is present in a given year.
 *
 * 4. CALCULATED VARIABLES: Variables starting with _ (underscore) are
 *    CDC-calculated variables derived from survey responses. These include
-*    _BMI5, _SMOKER3, _AGE80, _AGEG5YR, _RACEGR3/_RACEGR4, etc.
+*    _BMI5, _SMOKER3, _IMPAGE/_AGE80, _AGEG5YR,
+*    _RACEGR2/_RACEGR3/_RACEGR4, etc.
 *    Documentation: see docs/20XX-calculated-variables-*.pdf
 *
 * 5. STATE FIPS CODES: _STATE contains FIPS codes. Codes > 56 are
@@ -415,4 +468,8 @@ display as text "============================================"
 * 7. INCOME HARMONIZATION: We collapse INCOME3 (2021+) to the 8-category
 *    INCOME2 scale. If you need the finer 2021+ categories ($100-150K,
 *    $150-200K, $200K+), use INCOME3 directly for those years.
+*
+* 8. OUTPUTS: This script writes the Stata-native brfss_clean.dta.
+*    The R script writes a separate brfss_clean_from_r.dta export so the
+*    two languages do not overwrite each other.
 ********************************************************************************
