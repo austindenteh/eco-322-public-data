@@ -27,19 +27,17 @@ The **American Community Survey (ACS)** is an annual survey conducted by the U.S
 The data was extracted from **IPUMS USA** (University of Minnesota):
 - https://usa.ipums.org/usa/
 
-**Pre-built extracts on Dropbox:**
+**Yearly ACS files on Dropbox:**
 
-The Dropbox folder contains several extract options of varying size. Pick the one that fits your needs:
+The Dropbox folder now centers the yearly ACS files used by the starter scripts.
 
 | File | Years | Approx. Size | Best For |
 |---|---|---|---|
-| `usa_00001_2006_2024.dta` | 2006--2024 | 45 GB | Full time series, long-run trends |
-| `usa_00002_2020_2024.dta` | 2020--2024 | 17 GB | Recent years, moderate size |
-| `usa_00003_2023_2024.dta` | 2023--2024 | 11 GB | Quick start, smallest download |
+| `acs_YYYY.dta` | Single-year ACS 1-year files, 2006--2024 | 1.6--2.0 GB each | Main full-column workflow and optional low-memory workflow |
 
-These pre-built extracts include a comprehensive set of variables (demographics, education, employment, income, health insurance, immigration, disability, housing, and more).
+These yearly files include the ACS 1-year sample for the named year and are the expected inputs for both the main `01_*` scripts and the optional low-memory `01_*` scripts.
 
-**Using your own IPUMS extract:** You can also create a custom extract at [IPUMS USA](https://usa.ipums.org/usa/) with only the variables and years you need. This is recommended if you want a smaller file or need variables not in the pre-built extracts. The starter scripts auto-detect whichever `.dta` or `.dta.gz` file you place in `data/raw/`.
+**Using your own IPUMS extract:** You can also create your own yearly extracts at [IPUMS USA](https://usa.ipums.org/usa/) with only the variables and years you need. Download one ACS 1-year sample per year as Stata `.dta` and place the files in `data/raw/` as `acs_YYYY.dta`.
 
 ## Directory Structure
 
@@ -49,26 +47,31 @@ ipums_acs_1_year_sample/
 ├── code/
 │   ├── 01_load_and_subset.do          ← Load data, restrict to ACS years (Stata)
 │   ├── 01_load_and_subset.R           ← Same in R
+│   ├── 01_load_and_subset_optional_low_memory.do  ← Optional yearly low-memory loader (Stata)
+│   ├── 01_load_and_subset_optional_low_memory.R   ← Same in R
 │   ├── 02_clean_demographics.do       ← Clean variables, descriptive stats (Stata)
 │   └── 02_clean_demographics.R        ← Same in R
 ├── data/
-│   └── raw/                           ← Place your .dta or .dta.gz file(s) here
+│   └── raw/                           ← Place yearly acs_YYYY.dta files here
 ├── docs/                              ← Codebook, XML metadata, COVID-19 guidance
 │   ├── usa_00001.cbk
 │   ├── usa_00001.xml
 │   └── ACS AND COVID-19-...pdf
-└── output/                            ← Cleaned datasets (created by scripts)
+└── output/                            ← Working datasets created by scripts
 ```
 
 ## Quick Start
 
 ### Step 1: Obtain the Data
 
-Place **one** `.dta` or `.dta.gz` file in `data/raw/`. The scripts will auto-detect it.
+Place your yearly ACS files in `data/raw/` and name them `acs_YYYY.dta`.
+
+- Main full-column workflow: the main `01_*` scripts append the selected yearly files and keep all available columns.
+- Optional low-memory workflow: the optional `01_*` scripts append the selected yearly files but keep only the raw columns needed by `02_*`.
 
 **Option A — Download from Dropbox (recommended):**
 1. Go to the [Dropbox folder](https://www.dropbox.com/scl/fo/ds69nbylyp6582opynk3w/AIOmznaVTgjnjtcNY7rSFsw?rlkey=ctrwg26u0c2z6prjwz4llnx5a&st=6hts8sht&dl=0)
-2. Pick the extract that fits your needs (see size table above)
+2. Download the yearly files for the years you want
 3. Place it in `data/raw/`
 
 **Option B — Create your own IPUMS extract:**
@@ -76,12 +79,23 @@ Place **one** `.dta` or `.dta.gz` file in `data/raw/`. The scripts will auto-det
 2. Create an account (free for researchers)
 3. Select samples: ACS 1-year for your desired years
 4. Select variables (see Key Variables below for suggestions)
-5. Download as Stata (.dta) format
-6. Place the `.dta` or `.dta.gz` file in `data/raw/`
+5. Download each sample as a Stata `.dta` file
+6. Rename the files `acs_YYYY.dta` and place them in `data/raw/`
 
-> **Note:** The starter scripts auto-detect whichever data file is in `data/raw/`. If you have multiple files, you can specify which one to use at the top of each script. Sections that reference variables not in your extract are automatically skipped.
+> **Note:** The `02_*` scripts skip sections whose source variables are not in your extract.
 
 ### Step 2: Load and Subset
+
+The scripts can be launched from:
+- `ipums_acs_1_year_sample/`
+- `ipums_acs_1_year_sample/code/`
+- the repo root
+
+They also accept a manual root override:
+- Stata: `global acs_root "/path/to/ipums_acs_1_year_sample"`
+- R: `Sys.setenv(ACS_ROOT = "/path/to/ipums_acs_1_year_sample")`
+
+**Main full-column yearly workflow**
 
 **Stata:**
 ```stata
@@ -94,7 +108,38 @@ do code/01_load_and_subset.do
 source("code/01_load_and_subset.R")
 ```
 
-This script loads the IPUMS extract, drops any pre-2006 census samples, creates a unique person identifier, validates key variables, and saves a working copy to `output/`.
+Set either `first_year` / `last_year` or an explicit `years_to_load` list at the top of the script.
+The main full-column scripts now default to `2023-2024`. If full-column multi-year `R` is too heavy on your machine, use the optional low-memory workflow or scale the year range back.
+
+These scripts load one yearly ACS file at a time, append the selected years, create a unique record ID, validate key variables, and save a working copy to `output/`.
+
+- Stata writes `output/acs_working.dta`
+- R writes `output/acs_working.rds` and `output/acs_working_from_r.dta`
+
+**Optional low-memory yearly workflow**
+
+Use this if you want many ACS years and the full-column yearly workflow is still too large for your machine. It expects yearly files named `data/raw/acs_YYYY.dta`.
+
+Set either `first_year` / `last_year` or an explicit `years_to_load` list at the top of the optional script.
+
+**Stata:**
+```stata
+cd "/path/to/ipums_acs_1_year_sample"
+do code/01_load_and_subset_optional_low_memory.do
+```
+
+**R:**
+```r
+source("code/01_load_and_subset_optional_low_memory.R")
+```
+
+These scripts load one yearly ACS file at a time, keep only the raw columns needed by `02_clean_demographics.*`, save temporary yearly files, and then build the usual working dataset.
+
+- Stata writes `output/acs_working.dta`
+- R writes `output/acs_working.rds`
+- R can also write `output/acs_working_from_r.dta` if `write_dta_export <- TRUE`
+
+The low-memory workflow reduces import pressure, but the final combined working file still needs to fit once the selected years are appended.
 
 ### Step 3: Clean and Analyze
 
@@ -120,9 +165,9 @@ This creates cleaned demographic indicators, education variables, employment and
 | `hisp` | Hispanic/Latino (any race) | 0/1 |
 | `white` | White non-Hispanic | 0/1 |
 | `black` | Black non-Hispanic | 0/1 |
-| `asian` | Asian non-Hispanic | 0/1 |
+| `asian` | Asian / Pacific Islander non-Hispanic | 0/1 |
 | `other` | Other race non-Hispanic | 0/1 |
-| `race_eth` | Mutually exclusive race/ethnicity | White NH, Black NH, Hispanic, Asian NH, Other NH |
+| `race_eth` | Mutually exclusive race/ethnicity | White NH, Black NH, Hispanic, Asian/PI NH, Other NH |
 | `married` | Currently married | 0/1 |
 | `age_18_24` ... `age_65plus` | Age group indicators | 0/1 |
 
@@ -181,7 +226,7 @@ This creates cleaned demographic indicators, education variables, employment and
 | `year` | Survey year (2006--2024) |
 | `serial` | Household serial number (unique within year) |
 | `pernum` | Person number within household |
-| `individ` | Unique person ID (`serial * 100 + pernum`) |
+| `individ` | Unique record ID within the saved extract (`sample * 1e10 + serial * 100 + pernum` when `sample` is present) |
 | `perwt` | Person-level survey weight |
 | `hhwt` | Household-level survey weight |
 | `strata` | Survey stratum |
@@ -190,27 +235,25 @@ This creates cleaned demographic indicators, education variables, employment and
 | `countyfip` | County FIPS code |
 | `puma` | Public Use Microdata Area |
 
+`individ` is a unique record ID within the saved extract, not a longitudinal person identifier across years.
+
 ## Important Notes
 
 ### Survey Design
 
-The ACS uses a complex survey design with stratification and clustering. For valid standard errors, use survey methods:
+The ACS uses a complex survey design with stratification and clustering. The starter regression examples use person weights directly, while design-based or replicate-weight methods are recommended when your application needs design-correct standard errors.
 
 **Stata:**
 ```stata
-svyset cluster [pw=perwt], strata(strata)
-svy: reg uninsured female age i.race_eth
+reg uninsured female age i.race_eth [pw=perwt], robust
 ```
 
 **R:**
 ```r
-library(survey)
-des <- svydesign(ids = ~cluster, strata = ~strata,
-                 weights = ~perwt, data = acs)
-svyglm(uninsured ~ female + age + factor(race_eth), design = des)
+lm(uninsured ~ female + age + factor(race_eth), data = acs, weights = perwt)
 ```
 
-Replicate weights (`repwtp1`--`repwtp80`) are also available for BRR standard errors.
+Replicate weights (`repwtp1`--`repwtp80`) are also available for BRR standard errors, and you can still use `survey` / `svyset` workflows when you need them.
 
 ### COVID-19 and 2020 Data
 
@@ -222,29 +265,21 @@ Health insurance variables (`hcovany`, `hcovpriv`, `hcovpub`, `hinscaid`, `hinsc
 
 ### Education Coding
 
-The `yrsed` variable maps IPUMS detailed education codes (`educd`) to continuous years of schooling, following the approach in Kuka et al. (2020). Some rare education categories may not be mapped (resulting in missing values). The key mappings:
+When `educd` is available, the starter uses a codebook-aligned mapping from IPUMS detailed education codes to approximate years of schooling. Grouped lower-schooling categories are assigned rounded midpoints, while the higher categories preserve the common degree transitions:
 
-| `educd` | `yrsed` | Description |
-|---|---|---|
-| 2 | 0 | No schooling |
-| 14 | 2 | Nursery to 4th grade |
-| 22--23 | 7--8 | 7th--8th grade |
-| 25--30 | 9--11 | 9th--11th grade |
-| 40, 50, 63, 64 | 12 | HS diploma / GED |
-| 61 | 12 | 12th grade, no diploma (excluded from `hs`) |
-| 65 | 13 | Some college, less than 1 year |
-| 70, 71 | 14 | Some college / Associate's |
-| 101 | 16 | Bachelor's degree |
-| 114 | 18 | Master's degree |
-| 115 | 19 | Professional degree |
-| 116 | 21 | Doctorate |
+- `062`, `063`, `064` map to completed high school / GED
+- `081`, `082`, `083` map to associate's degree categories
+- `101` maps to bachelor's degree
+- `114`, `115`, `116` map to postgraduate degrees
+
+The degree indicators are coded directly from `educd` when available so that `hs`, `some_college`, and `college` line up with the detailed degree definitions. If `educd` is absent but `educ` is present, the starter falls back to the coarser `educ` categories.
 
 ### File Size
 
-The pre-built extracts range from 11 GB to 45 GB (uncompressed). Loading requires substantial RAM (16+ GB recommended). If memory is an issue:
-- Use a smaller pre-built extract (e.g., `usa_00003_2023_2024.dta` at 11 GB)
-- Create a custom IPUMS extract with fewer variables or years
-- Use column selection when reading (`col_select` in R's `read_dta()`)
+The yearly ACS files are about 1.6--2.0 GB each. Loading many years with all columns can still require substantial RAM. If memory is an issue:
+- Start with fewer years in the main full-column yearly workflow
+- Use the optional yearly low-memory workflow with `acs_YYYY.dta` files
+- Create yearly IPUMS extracts with fewer variables
 
 ## Common Research Applications
 

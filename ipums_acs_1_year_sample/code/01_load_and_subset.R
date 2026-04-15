@@ -1,16 +1,13 @@
 ################################################################################
 # 01_load_and_subset.R
 #
-# Purpose: Load an IPUMS ACS extract, restrict to ACS 1-year samples
-#          (drop any pre-2006 census samples), create a unique person
+# Purpose: Load yearly IPUMS ACS files, append them, create a unique record
 #          identifier, validate, and save.
 #
-# Input:   data/raw/<any IPUMS .dta or .dta.gz file>
-#          The script auto-detects whichever file is present.
-#          You can also specify a file manually (see Section 2).
+# Input:   data/raw/acs_YYYY.dta
 #
 # Output:  output/acs_working.rds
-#          output/acs_working.dta
+#          output/acs_working_from_r.dta
 #
 # Data:    American Community Survey (ACS) 1-year samples via IPUMS USA.
 #          Annual cross-sectional survey of approx. 3.5 million individuals
@@ -20,11 +17,14 @@
 #          Source: IPUMS USA, University of Minnesota.
 #          https://usa.ipums.org
 #
-# Usage:   Update the acs_root path below, then source this file:
-#            source("/path/to/ipums_acs_1_year_sample/code/01_load_and_subset.R")
+# Usage:   Run from ipums_acs_1_year_sample/, ipums_acs_1_year_sample/code/,
+#          or the repo root:
+#            source("code/01_load_and_subset.R")
+#          You can also set Sys.setenv(ACS_ROOT = "/path/to/ipums_acs_1_year_sample")
 #
 # Required packages: haven, dplyr
-#   Install with: install.packages(c("haven", "dplyr"))
+# Optional for larger full-column yearly appends: data.table
+#   Install with: install.packages(c("haven", "dplyr", "data.table"))
 #
 # Author:  Austin Denteh (adapted from Kuka et al. 2020 replication code)
 # Date:    February 2026
@@ -36,128 +36,173 @@ library(dplyr)
 # ============================================================================
 # 1. DEFINE PATHS
 # ============================================================================
-# Set the root directory for the ipums_acs_1_year_sample/ folder.
-# Users should update this path to match their system.
+# Auto-detect the dataset root from ACS_ROOT, the dataset folder, the code/
+# folder, or the repo root.
 
-acs_root <- "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/ipums_acs_1_year_sample"
+resolve_acs_root <- function() {
+  env_root <- Sys.getenv("ACS_ROOT", unset = "")
+  candidates <- c(
+    if (nzchar(env_root)) env_root,
+    getwd(),
+    dirname(getwd()),
+    file.path(getwd(), "ipums_acs_1_year_sample")
+  )
+  candidates <- unique(candidates[nzchar(candidates)])
+
+  for (candidate in candidates) {
+    if (file.exists(file.path(candidate, "code", "01_load_and_subset.R")) &&
+        file.exists(file.path(candidate, "README.md"))) {
+      return(normalizePath(candidate, winslash = "/", mustWork = TRUE))
+    }
+  }
+
+  stop(
+    "Could not locate the ipums_acs_1_year_sample/ directory.\n",
+    "Run this script from ipums_acs_1_year_sample/, ipums_acs_1_year_sample/code/, ",
+    "or the repo root, or set ACS_ROOT first."
+  )
+}
+
+acs_root <- resolve_acs_root()
+cat("Using ACS root:", acs_root, "\n")
 
 out_rds  <- file.path(acs_root, "output", "acs_working.rds")
-out_dta  <- file.path(acs_root, "output", "acs_working.dta")
+out_dta  <- file.path(acs_root, "output", "acs_working_from_r.dta")
 
 # ============================================================================
-# 2. IDENTIFY DATA FILE
-# ============================================================================
-# Specify your data file below, OR leave blank ("") to auto-detect.
-# The script will look for the first .dta or .dta.gz file in data/raw/.
-#
-# Examples:
-#   data_file <- file.path(acs_root, "data", "raw", "usa_00003_2023_2024.dta")   # smallest (11 GB)
-#   data_file <- file.path(acs_root, "data", "raw", "usa_00002_2020_2024.dta")   # medium (17 GB)
-#   data_file <- file.path(acs_root, "data", "raw", "usa_00001_2006_2024.dta")   # full (45 GB)
-#   data_file <- file.path(acs_root, "data", "raw", "my_custom_extract.dta.gz")  # your own IPUMS extract
+ # 2. USER SETTINGS
+ # ============================================================================
+ # This main script keeps all available columns from the selected yearly ACS
+ # files. If that is still too heavy for your machine, use
+ # 01_load_and_subset_optional_low_memory.R instead.
 
-data_file <- ""
+ # Year-selection settings for yearly mode.
+ # If years_to_load is not NULL, it overrides first_year/last_year.
+ # Example:
+ # years_to_load <- c(2015, 2016, 2018, 2024)
+ years_to_load <- NULL
+ first_year <- 2023
+ last_year  <- 2024
 
-# --- Auto-detect if not specified ---
-if (data_file == "") {
-  raw_dir <- file.path(acs_root, "data", "raw")
-  candidates <- list.files(raw_dir, pattern = "\\.(dta\\.gz|dta)$", full.names = TRUE)
+ make_year_label <- function(years) {
+   years <- sort(unique(years))
+   if (length(years) == 0) {
+     return("no years")
+   }
+   if (length(years) == 1) {
+     return(as.character(years))
+   }
+   if (identical(years, seq.int(min(years), max(years)))) {
+     return(paste0(min(years), "-", max(years)))
+   }
+   paste(years, collapse = ", ")
+ }
 
-  if (length(candidates) == 0) {
-    stop("No .dta or .dta.gz file found in data/raw/.\n",
-         "Download data from Dropbox or IPUMS and place in data/raw/.\n",
-         "See README.md for instructions.")
-  }
+ coerce_key_types <- function(df) {
+   if ("year" %in% names(df)) {
+     df$year <- as.integer(haven::zap_labels(df$year))
+   }
+   if ("sample" %in% names(df)) {
+     df$sample <- as.integer(haven::zap_labels(df$sample))
+   }
+   df
+ }
 
-  # Prefer .dta.gz if available (compressed IPUMS format), else .dta
-  gz_files  <- candidates[grepl("\\.dta\\.gz$", candidates)]
-  dta_files <- candidates[grepl("\\.dta$", candidates) & !grepl("\\.dta\\.gz$", candidates)]
+ append_full_years <- function(existing, next_df) {
+   if (is.null(existing)) {
+     return(next_df)
+   }
 
-  if (length(gz_files) > 0) {
-    data_file <- gz_files[1]
-  } else {
-    data_file <- dta_files[1]
-  }
+   if (requireNamespace("data.table", quietly = TRUE)) {
+     combined <- data.table::rbindlist(list(existing, next_df), use.names = TRUE, fill = TRUE)
+     return(as.data.frame(combined))
+   }
 
-  cat("Auto-detected data file:", basename(data_file), "\n")
-}
+   bind_rows(existing, next_df)
+ }
 
-# ============================================================================
-# 3. LOAD THE RAW DATA
-# ============================================================================
-# haven::read_dta() reads both .dta and .dta.gz files.
-# Large files may take several minutes to load.
+ load_one_full_year <- function(yr, raw_dir) {
+   year_file <- file.path(raw_dir, paste0("acs_", yr, ".dta"))
+   if (!file.exists(year_file)) {
+     stop("Required yearly ACS file not found: ", year_file)
+   }
 
-cat("============================================\n")
-cat("   LOADING IPUMS ACS EXTRACT\n")
-cat("============================================\n\n")
+   cat(paste0("--- Year ", yr, " ---\n"))
+   df <- read_dta(year_file)
+   names(df) <- tolower(names(df))
+   df <- coerce_key_types(df)
 
-cat("Loading:", data_file, "\n")
-cat("This may take several minutes for a large extract...\n")
-acs <- read_dta(data_file)
+   if (!("year" %in% names(df) && "sample" %in% names(df))) {
+     stop("Yearly ACS file is missing year or sample: ", basename(year_file))
+   }
 
-cat(sprintf("\nRaw data loaded.\n  Observations: %s\n  Variables:    %d\n",
-            format(nrow(acs), big.mark = ","), ncol(acs)))
+   if (!all(df$year == yr, na.rm = TRUE)) {
+     stop("Year check failed for ", basename(year_file), " -- expected all rows to have year = ", yr)
+   }
 
-# ============================================================================
-# 4. LOWERCASE VARIABLE NAMES
-# ============================================================================
-# IPUMS variables are uppercase. Lowercase for consistency.
+   cat(sprintf("  Imported %d: %s observations, %d variables\n",
+               yr, format(nrow(df), big.mark = ","), ncol(df)))
+   df
+ }
 
-names(acs) <- tolower(names(acs))
-cat("\nVariable names lowercased.\n")
+ raw_dir <- file.path(acs_root, "data", "raw")
 
-# ============================================================================
-# 5. RESTRICT TO ACS 1-YEAR SAMPLES (2006+)
-# ============================================================================
-# Some extracts include decennial census samples (1970, 1980, 1990, 2000).
-# Drop these to keep only ACS years. If your extract only contains ACS
-# years, this step does nothing.
+ # ============================================================================
+ # 3. LOAD YEARLY ACS FILES
+ # ============================================================================
+ # The main script now expects yearly ACS files named data/raw/acs_YYYY.dta.
 
-cat("\n--- Year distribution (before restriction) ---\n")
-print(table(acs$year))
+ if (!is.null(years_to_load)) {
+   years <- sort(unique(as.integer(years_to_load)))
+   if (length(years) == 0 || any(is.na(years))) {
+     stop("years_to_load must contain one or more valid numeric years.")
+   }
+ } else {
+   years <- first_year:last_year
+ }
 
-n_before <- nrow(acs)
-acs <- acs %>% filter(year >= 2006)
-n_dropped <- n_before - nrow(acs)
+ cat("============================================\n")
+ cat(paste0("   BUILDING ACS WORKING FILE FROM YEARLY FILES (", make_year_label(years), ")\n"))
+ cat("============================================\n\n")
 
-if (n_dropped > 0) {
-  cat(sprintf("\nDropped %s observations from pre-ACS samples.\n",
-              format(n_dropped, big.mark = ",")))
-} else {
-  cat("\nNo pre-ACS samples found -- all observations retained.\n")
-}
-cat(sprintf("Remaining observations: %s\n", format(nrow(acs), big.mark = ",")))
+ acs <- NULL
+ for (yr in years) {
+   year_df <- load_one_full_year(yr, raw_dir)
+   acs <- append_full_years(acs, year_df)
+   rm(year_df)
+   invisible(gc(FALSE))
+ }
 
-cat("\n--- Year distribution (after restriction) ---\n")
-print(table(acs$year))
+ cat("\nNo non-ACS-1-year observations found -- yearly files are already restricted.\n")
+ cat(sprintf("Remaining observations: %s\n", format(nrow(acs), big.mark = ",")))
 
-# ============================================================================
-# 6. CREATE UNIQUE PERSON IDENTIFIER
-# ============================================================================
-# IPUMS identifies individuals by year + serial (household) + pernum (person
-# within household). Create a single unique ID.
+ # ============================================================================
+ # 4. CREATE UNIQUE PERSON IDENTIFIER
+ # ============================================================================
+ # Create a unique record ID for each person record in the saved extract.
 
-acs <- acs %>% mutate(individ = serial * 100 + pernum)
+ if ("sample" %in% names(acs)) {
+   acs <- acs %>% mutate(individ = sample * 10000000000 + serial * 100 + pernum)
+ } else {
+   acs <- acs %>% mutate(individ = year * 10000000000 + serial * 100 + pernum)
+ }
 
-# Verify uniqueness within year
-dup_check <- acs %>% group_by(year, individ) %>% filter(n() > 1)
-if (nrow(dup_check) > 0) {
-  warning("Duplicate year-individ combinations found!")
-} else {
-  cat("\nUnique ID (individ = serial*100 + pernum) verified.\n")
-}
+ if (anyDuplicated(acs$individ) > 0) {
+   warning("Duplicate individ values found!")
+ } else {
+   cat("\nUnique record ID verified.\n")
+ }
 
-# ============================================================================
-# 7. BASIC VALIDATION
-# ============================================================================
+ # ============================================================================
+ # 5. BASIC VALIDATION
+ # ============================================================================
 
 cat("\n============================================\n")
 cat("   VALIDATION CHECKS\n")
 cat("============================================\n")
 
-# --- 7a. Year range ---
-yr_range <- range(acs$year)
+# --- 5a. Year range ---
+yr_range <- range(acs$year, na.rm = TRUE)
 cat(sprintf("\nYear range: %d to %d\n", yr_range[1], yr_range[2]))
 if (yr_range[1] >= 2006) {
   cat("  [OK] All years are ACS (2006+).\n")
@@ -165,11 +210,11 @@ if (yr_range[1] >= 2006) {
   cat("  [WARN] Found years before 2006 -- check data.\n")
 }
 
-# --- 7b. Key variables exist ---
-# These are common IPUMS variables. Custom extracts may have fewer.
-key_vars <- c("year", "serial", "pernum", "perwt", "statefip", "age", "sex",
-              "race", "hispan", "educ", "empstat", "hcovany", "poverty",
-              "citizen", "bpl", "incwage")
+# --- 5b. Key variables exist ---
+# These are common IPUMS variables used by the starter cleaning script.
+key_vars <- c("year", "sample", "serial", "pernum", "perwt", "statefip", "age",
+              "sex", "race", "hispan", "educ", "educd", "empstat", "hcovany",
+              "poverty", "citizen", "bpl", "incwage")
 cat("\nChecking key variables:\n")
 n_found   <- 0
 n_missing <- 0
@@ -185,15 +230,15 @@ for (v in key_vars) {
 cat(sprintf("\n  Found %d of %d key variables.\n", n_found, length(key_vars)))
 if (n_missing > 0) {
   cat(sprintf("  %d variable(s) not in this extract.\n", n_missing))
-  cat("  Sections using missing variables will be skipped in 02_clean_demographics.R.\n")
+  cat("  The 02_clean_demographics.R script will skip sections whose source variables are missing.\n")
 }
 
-# --- 7c. Sample sizes by year ---
+# --- 5c. Sample sizes by year ---
 cat("\n--- Observations per year ---\n")
 yr_tab <- acs %>% count(year) %>% mutate(pct = round(n / sum(n) * 100, 1))
 print(as.data.frame(yr_tab), row.names = FALSE)
 
-# --- 7d. Weight summary ---
+# --- 5d. Weight summary ---
 if ("perwt" %in% names(acs)) {
   cat("\n--- Person weight (perwt) summary ---\n")
   print(summary(acs$perwt))
@@ -202,7 +247,7 @@ if ("perwt" %in% names(acs)) {
 }
 
 # ============================================================================
-# 8. SORT AND SAVE
+# 6. SORT AND SAVE
 # ============================================================================
 
 acs <- acs %>% arrange(year, serial, pernum)
@@ -224,23 +269,22 @@ cat("\nNext step: run 02_clean_demographics.R\n")
 ################################################################################
 # NOTES:
 #
-# 1. DATA FILE AUTO-DETECTION:
-#    The script scans data/raw/ for .dta.gz and .dta files. If multiple
-#    files are present, it uses the first one found (alphabetically).
-#    You can override this by setting data_file in Section 2.
+# 1. YEARLY ACS FILES:
+#    The main script now expects yearly files named acs_YYYY.dta.
+#    It keeps all available columns from the selected years.
+#    If you only need the starter columns, use the optional low-memory
+#    script instead.
 #
-# 2. PRE-BUILT EXTRACTS ON DROPBOX:
-#    Three extract options are available (see README):
-#    - usa_00001_2006_2024.dta  (45 GB, full 19-year range)
-#    - usa_00002_2020_2024.dta  (17 GB, 5 recent years)
-#    - usa_00003_2023_2024.dta  (11 GB, 2 recent years)
+# 2. YEAR SELECTION:
+#    Use first_year / last_year for consecutive years or years_to_load
+#    for an explicit year list.
 #
 # 3. CUSTOM IPUMS EXTRACTS:
-#    Go to https://usa.ipums.org/usa/ to create a custom extract.
-#    Select samples (ACS 1-year for desired years) and variables.
-#    Download as Stata (.dta) format and place in data/raw/.
-#    The 02_clean_demographics.R script gracefully skips sections
-#    that require variables not in your extract.
+#    Go to https://usa.ipums.org/usa/ to create yearly ACS extracts.
+#    Select ACS 1-year samples for the desired years and download one
+#    yearly file per sample as Stata (.dta) format.
+#    The 02_clean_demographics.R script skips sections whose source
+#    variables are not in your extract.
 #
 # 4. SURVEY DESIGN:
 #    The ACS is a complex survey with stratification and clustering.
@@ -254,7 +298,11 @@ cat("\nNext step: run 02_clean_demographics.R\n")
 #      des <- svydesign(ids = ~cluster, strata = ~strata,
 #                       weights = ~perwt, data = acs)
 #
-# 5. COVID-19 NOTE (2020):
+# 5. IDENTIFIERS:
+#    individ is a unique record ID within the saved extract.
+#    It is not a longitudinal person ID across time.
+#
+# 6. COVID-19 NOTE (2020):
 #    The 2020 ACS had disrupted data collection due to COVID-19.
 #    The Census Bureau released experimental weights for 2020 data.
 #    See docs/ for guidance on using 2020 data.

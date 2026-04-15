@@ -1,13 +1,10 @@
 ********************************************************************************
 * 01_load_and_subset.do
 *
-* Purpose: Load an IPUMS ACS extract, restrict to ACS 1-year samples
-*          (drop any pre-2006 census samples), create a unique person
+* Purpose: Load yearly IPUMS ACS files, append them, create a unique record
 *          identifier, validate, and save.
 *
-* Input:   data/raw/<any IPUMS .dta or .dta.gz file>
-*          The script auto-detects whichever file is present.
-*          You can also specify a file manually (see Section 2).
+* Input:   data/raw/acs_YYYY.dta
 *
 * Output:  output/acs_working.dta
 *
@@ -19,9 +16,10 @@
 *          Source: IPUMS USA, University of Minnesota.
 *          https://usa.ipums.org
 *
-* Usage:   Update the global acs_root path below, then:
-*            cd "/path/to/ipums_acs_1_year_sample"
+* Usage:   Run from ipums_acs_1_year_sample/, ipums_acs_1_year_sample/code/,
+*          or the repo root:
 *            do code/01_load_and_subset.do
+*          You can also set global acs_root first.
 *
 * Author:  Austin Denteh (adapted from Kuka et al. 2020 replication code)
 * Date:    February 2026
@@ -34,125 +32,182 @@ set maxvar 10000
 * ============================================================================
 * 1. DEFINE PATHS
 * ============================================================================
-* Set the working directory to the ipums_acs_1_year_sample/ folder.
-* Users should update this path to match their system.
+* Auto-detect the dataset root from the current working directory.
+* You can also set global acs_root before running the script.
 
-global acs_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/ipums_acs_1_year_sample"
+local cwd `"`c(pwd)'"'
+
+if "$acs_root" != "" & fileexists("$acs_root/code/01_load_and_subset.do") {
+    global acs_root "$acs_root"
+}
+else if fileexists("code/01_load_and_subset.do") & fileexists("README.md") {
+    global acs_root "`cwd'"
+}
+else if fileexists("01_load_and_subset.do") & fileexists("../README.md") {
+    global acs_root "`cwd'/.."
+}
+else if fileexists("ipums_acs_1_year_sample/code/01_load_and_subset.do") ///
+    & fileexists("ipums_acs_1_year_sample/README.md") {
+    global acs_root "`cwd'/ipums_acs_1_year_sample"
+}
+else {
+    display as error "Could not locate the ipums_acs_1_year_sample/ directory."
+    display as error "Run from the dataset folder, its code/ folder, the repo root,"
+    display as error "or set global acs_root first."
+    exit 198
+}
+
 cd "$acs_root"
+display as text "Using ACS root: $acs_root"
 
 local out_dta  "output/acs_working.dta"
 
 * ============================================================================
-* 2. IDENTIFY DATA FILE
+* 2. USER SETTINGS
 * ============================================================================
-* Specify your data file below, OR leave blank to auto-detect.
-* The script will look for the first .dta or .dta.gz file in data/raw/.
-*
-* Examples:
-*   local data_file "data/raw/usa_00003_2023_2024.dta"   // smallest (11 GB)
-*   local data_file "data/raw/usa_00002_2020_2024.dta"   // medium (17 GB)
-*   local data_file "data/raw/usa_00001_2006_2024.dta"   // full (45 GB)
-*   local data_file "data/raw/my_custom_extract.dta.gz"   // your own IPUMS extract
+* This main script keeps all available columns from the selected yearly ACS
+* files. If that is still too heavy for your machine, use
+* 01_load_and_subset_optional_low_memory.do instead.
 
-local data_file ""
+* Choose either a consecutive year range or an explicit year list.
+* If years_to_load is not empty, it overrides first_year/last_year.
+* Example:
+* local years_to_load "2015 2016 2018 2024"
+local years_to_load ""
 
-* --- Auto-detect if not specified ---
-if "`data_file'" == "" {
-    * Look for .dta.gz files first (compressed IPUMS extracts)
-    local gz_files : dir "data/raw" files "*.dta.gz"
-    if `"`gz_files'"' != "" {
-        local first_gz : word 1 of `gz_files'
-        local data_file "data/raw/`first_gz'"
-    }
-    else {
-        * Look for .dta files
-        local dta_files : dir "data/raw" files "*.dta"
-        if `"`dta_files'"' != "" {
-            local first_dta : word 1 of `dta_files'
-            local data_file "data/raw/`first_dta'"
-        }
-        else {
-            display as error "ERROR: No .dta or .dta.gz file found in data/raw/"
-            display as error "Download data from Dropbox or IPUMS and place in data/raw/"
-            display as error "See README.md for instructions."
-            error 601
-        }
-    }
-    display as text "Auto-detected data file: `data_file'"
-}
+* Consecutive-year option.
+local first_year 2023
+local last_year  2024
+
+* If 1, remove the temporary yearly folder after a successful run.
+local cleanup_temp_files 1
+
+local raw_dir  "data/raw"
+local temp_dir "output/_tmp_full_yearly_stata"
 
 * ============================================================================
-* 3. LOAD THE RAW DATA
+* 3. BUILD THE WORKING FILE FROM YEARLY ACS FILES
 * ============================================================================
-* The IPUMS extract may be a .dta or .dta.gz file. Stata 16+ can read
-* .dta.gz directly. Large files may take several minutes to load.
+* The main script now expects yearly ACS files named data/raw/acs_YYYY.dta.
 
-display as text _newline "============================================"
-display as text "   LOADING IPUMS ACS EXTRACT"
-display as text "============================================"
-
-display as text _newline "Loading: `data_file'"
-display as text "This may take several minutes for a large extract..."
-use "`data_file'", clear
-
-display as text _newline "Raw data loaded."
-display as text "  Observations: " _N
-display as text "  Variables:    " c(k)
-
-* ============================================================================
-* 4. LOWERCASE VARIABLE NAMES
-* ============================================================================
-* IPUMS variables are uppercase. Lowercase for consistency.
-
-rename *, lower
-display as text _newline "Variable names lowercased."
-
-* ============================================================================
-* 5. RESTRICT TO ACS 1-YEAR SAMPLES (2006+)
-* ============================================================================
-* Some extracts include decennial census samples (1970, 1980, 1990, 2000).
-* Drop these to keep only ACS years. If your extract only contains ACS
-* years, this step does nothing.
-
-display as text _newline "--- Year distribution (before restriction) ---"
-tab year
-
-count if year < 2006
-local n_dropped = r(N)
-if `n_dropped' > 0 {
-    drop if year < 2006
-    display as text _newline "Dropped `n_dropped' observations from pre-ACS samples."
+local years ""
+if trim(`"`years_to_load'"') != "" {
+    local years `years_to_load'
+    local years : list uniq years
+    local years : list sort years
+    local years : list retok years
+    local year_label `"`years'"'
 }
 else {
-    display as text _newline "No pre-ACS samples found — all observations retained."
+    forvalues y = `first_year'(1)`last_year' {
+        local years "`years' `y'"
+    }
+    local years : list retok years
+    local year_label "`first_year'-`last_year'"
 }
+
+if trim(`"`years'"') == "" {
+    display as error "No years selected. Set years_to_load or first_year/last_year."
+    exit 198
+}
+
+capture mkdir "output"
+capture mkdir "`temp_dir'"
+if _rc != 0 {
+    local old_temp_files : dir "`temp_dir'" files "*.dta"
+    foreach f of local old_temp_files {
+        capture erase "`temp_dir'/`f'"
+    }
+    capture rmdir "`temp_dir'"
+    capture mkdir "`temp_dir'"
+    if _rc != 0 {
+        display as error "Could not rebuild the temporary folder: `temp_dir'"
+        exit 198
+    }
+}
+
+display as text _newline "============================================"
+display as text "   BUILDING ACS WORKING FILE FROM YEARLY FILES (`year_label')"
+display as text "============================================"
+
+local temp_files ""
+foreach y of local years {
+    local year_file "`raw_dir'/acs_`y'.dta"
+    if !fileexists("`year_file'") {
+        display as error "Required yearly ACS file not found: `year_file'"
+        exit 601
+    }
+
+    display as text _newline "--- Year `y' ---"
+    use "`year_file'", clear
+    rename *, lower
+
+    capture confirm variable year
+    if _rc != 0 {
+        display as error "Yearly file is missing year: `year_file'"
+        exit 198
+    }
+    capture confirm variable sample
+    if _rc != 0 {
+        display as error "Yearly file is missing sample: `year_file'"
+        exit 198
+    }
+
+    capture assert year == `y' if year != .
+    if _rc != 0 {
+        display as error "Year check failed for `year_file' -- expected all rows to have year = `y'"
+        exit 459
+    }
+
+    compress
+    local temp_file "acs_`y'_full.dta"
+    save "`temp_dir'/`temp_file'", replace
+    local temp_files "`temp_files' `temp_file'"
+
+    display as text "  Imported `y': " _N " observations, " c(k) " variables"
+}
+
+local temp_files : list retok temp_files
+if trim(`"`temp_files'"') == "" {
+    display as error "No ACS years were loaded. Check your yearly files and year settings."
+    exit 198
+}
+
+local is_first 1
+foreach f of local temp_files {
+    if `is_first' {
+        use "`temp_dir'/`f'", clear
+        local is_first 0
+    }
+    else {
+        append using "`temp_dir'/`f'"
+    }
+}
+
+display as text _newline "No non-ACS-1-year observations found -- yearly files are already restricted."
 display as text "Remaining observations: " _N
 
-display as text _newline "--- Year distribution (after restriction) ---"
-tab year
+* ============================================================================
+* 4. CREATE UNIQUE PERSON IDENTIFIER
+* ============================================================================
+* Create a unique record ID for each person record in the saved extract.
+
+gen double individ = sample * 10000000000 + serial * 100 + pernum
+format individ %18.0f
+
+* Verify uniqueness in the saved extract
+isid individ
+display as text _newline "Unique record ID verified."
 
 * ============================================================================
-* 6. CREATE UNIQUE PERSON IDENTIFIER
-* ============================================================================
-* IPUMS identifies individuals by year + serial (household) + pernum (person
-* within household). Create a single unique ID.
-
-gen long individ = serial * 100 + pernum
-format individ %20.0f
-
-* Verify uniqueness within year
-isid year individ
-display as text _newline "Unique ID (individ = serial*100 + pernum) verified."
-
-* ============================================================================
-* 7. BASIC VALIDATION
+* 5. BASIC VALIDATION
 * ============================================================================
 
 display as text _newline "============================================"
 display as text "   VALIDATION CHECKS"
 display as text "============================================"
 
-* --- 7a. Year range ---
+* --- 5a. Year range ---
 summarize year
 display as text "Year range: " r(min) " to " r(max)
 if r(min) >= 2006 {
@@ -162,13 +217,13 @@ else {
     display as error "  [WARN] Found years before 2006 — check data."
 }
 
-* --- 7b. Key variables exist ---
-* These are common IPUMS variables. Custom extracts may have fewer.
+* --- 5b. Key variables exist ---
+* These are common IPUMS variables used by the starter cleaning script.
 display as text _newline "Checking key variables:"
 local n_found = 0
 local n_missing = 0
-foreach v in year serial pernum perwt statefip age sex race hispan ///
-              educ empstat hcovany poverty citizen bpl incwage {
+foreach v in year sample serial pernum perwt statefip age sex race hispan ///
+              educ educd empstat hcovany poverty citizen bpl incwage {
     capture confirm variable `v'
     if _rc != 0 {
         display as text "  `v': not in extract"
@@ -179,17 +234,17 @@ foreach v in year serial pernum perwt statefip age sex race hispan ///
         local n_found = `n_found' + 1
     }
 }
-display as text _newline "  Found `n_found' of 16 key variables."
+display as text _newline "  Found `n_found' of 18 key variables."
 if `n_missing' > 0 {
     display as text "  `n_missing' variable(s) not in this extract."
-    display as text "  Sections using missing variables will be skipped in 02_clean_demographics.do."
+    display as text "  The 02_clean_demographics.do script will skip sections whose source variables are missing."
 }
 
-* --- 7c. Sample sizes by year ---
+* --- 5c. Sample sizes by year ---
 display as text _newline "--- Observations per year ---"
 tab year
 
-* --- 7d. Weight summary ---
+* --- 5d. Weight summary ---
 capture confirm variable perwt
 if _rc == 0 {
     display as text _newline "--- Person weight (perwt) summary ---"
@@ -200,11 +255,19 @@ else {
 }
 
 * ============================================================================
-* 8. SAVE WORKING COPY
+* 6. SAVE WORKING COPY
 * ============================================================================
 
 compress
 save "`out_dta'", replace
+
+if `cleanup_temp_files' {
+    local temp_cleanup_files : dir "`temp_dir'" files "*.dta"
+    foreach f of local temp_cleanup_files {
+        capture erase "`temp_dir'/`f'"
+    }
+    capture rmdir "`temp_dir'"
+}
 
 display as text _newline "============================================"
 display as text "   LOAD AND SUBSET COMPLETE"
@@ -217,23 +280,22 @@ display as text _newline "Next step: run 02_clean_demographics.do"
 ********************************************************************************
 * NOTES:
 *
-* 1. DATA FILE AUTO-DETECTION:
-*    The script scans data/raw/ for .dta.gz and .dta files. If multiple
-*    files are present, it uses the first one found (alphabetically).
-*    You can override this by setting `data_file' in Section 2.
+* 1. YEARLY ACS FILES:
+*    The main script now expects yearly files named acs_YYYY.dta.
+*    It keeps all available columns from the selected years.
+*    If you only need the starter columns, use the optional low-memory
+*    script instead.
 *
-* 2. PRE-BUILT EXTRACTS ON DROPBOX:
-*    Three extract options are available (see README):
-*    - usa_00001_2006_2024.dta  (45 GB, full 19-year range)
-*    - usa_00002_2020_2024.dta  (17 GB, 5 recent years)
-*    - usa_00003_2023_2024.dta  (11 GB, 2 recent years)
+* 2. YEAR SELECTION:
+*    Use first_year / last_year for consecutive years or years_to_load
+*    for an explicit year list.
 *
 * 3. CUSTOM IPUMS EXTRACTS:
-*    Go to https://usa.ipums.org/usa/ to create a custom extract.
-*    Select samples (ACS 1-year for desired years) and variables.
-*    Download as Stata (.dta) format and place in data/raw/.
-*    The 02_clean_demographics.do script gracefully skips sections
-*    that require variables not in your extract.
+*    Go to https://usa.ipums.org/usa/ to create yearly ACS extracts.
+*    Select ACS 1-year samples for the desired years and download one
+*    yearly file per sample as Stata (.dta) format.
+*    The 02_clean_demographics.do script skips sections whose source
+*    variables are not in your extract.
 *
 * 4. SURVEY DESIGN:
 *    The ACS is a complex survey with stratification and clustering.
@@ -245,7 +307,11 @@ display as text _newline "Next step: run 02_clean_demographics.do"
 *    To set up survey design in Stata:
 *      svyset cluster [pw=perwt], strata(strata)
 *
-* 5. COVID-19 NOTE (2020):
+* 5. IDENTIFIERS:
+*    individ is a unique record ID within the saved extract.
+*    It is not a longitudinal person ID across time.
+*
+* 6. COVID-19 NOTE (2020):
 *    The 2020 ACS had disrupted data collection due to COVID-19.
 *    The Census Bureau released experimental weights for 2020 data.
 *    See docs/ for guidance on using 2020 data.
