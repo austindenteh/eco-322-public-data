@@ -30,6 +30,10 @@ set maxvar 10000
 * ============================================================================
 * 1. DEFINE PATHS
 * ============================================================================
+* Auto-detect the dataset root from the current working directory.
+*
+* Optional manual override if auto-detection fails:
+* global acs_root "/path/to/ipums_acs_1_year_sample"
 
 local cwd `"`c(pwd)'"'
 if "$acs_root" != "" & fileexists("$acs_root/code/01_load_and_subset_optional_low_memory.do") {

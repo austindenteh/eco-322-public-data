@@ -29,11 +29,43 @@ library(dplyr)
 
 resolve_acs_root <- function(script_name) {
   env_root <- Sys.getenv("ACS_ROOT", unset = "")
+
+  parent_paths <- function(path) {
+    if (!nzchar(path) || !dir.exists(path)) {
+      return(character())
+    }
+
+    path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+    paths <- path
+
+    repeat {
+      parent <- dirname(path)
+      if (identical(parent, path)) {
+        break
+      }
+      paths <- c(paths, parent)
+      path <- parent
+    }
+
+    paths
+  }
+
+  rstudio_script_dir <- ""
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    rstudio_script <- tryCatch(
+      rstudioapi::getSourceEditorContext()$path,
+      error = function(e) ""
+    )
+    if (nzchar(rstudio_script)) {
+      rstudio_script_dir <- dirname(rstudio_script)
+    }
+  }
+
+  search_paths <- unique(unlist(lapply(c(getwd(), rstudio_script_dir), parent_paths), use.names = FALSE))
   candidates <- c(
     if (nzchar(env_root)) env_root,
-    getwd(),
-    dirname(getwd()),
-    file.path(getwd(), "ipums_acs_1_year_sample")
+    search_paths,
+    file.path(search_paths, "ipums_acs_1_year_sample")
   )
   candidates <- unique(candidates[nzchar(candidates)])
 
@@ -49,7 +81,9 @@ resolve_acs_root <- function(script_name) {
     paste(
       "Could not locate the ipums_acs_1_year_sample/ directory.",
       "Run this script from ipums_acs_1_year_sample/, ipums_acs_1_year_sample/code/,",
-      "from the repo root, or set ACS_ROOT to the dataset path."
+      "from the repo root, or set ACS_ROOT to the dataset path.",
+      paste0("Current working directory: ", getwd()),
+      'Manual override: Sys.setenv(ACS_ROOT = "/path/to/ipums_acs_1_year_sample")'
     )
   )
 }
@@ -163,6 +197,10 @@ extra_var_families <- list()
 # ============================================================================
 # 1. DEFINE PATHS
 # ============================================================================
+# Auto-detect the dataset root from the current working directory.
+#
+# Optional manual override if auto-detection fails:
+# Sys.setenv(ACS_ROOT = "/path/to/ipums_acs_1_year_sample")
 
 acs_root <- resolve_acs_root("01_load_and_subset_optional_low_memory.R")
 cat(paste0("Using ACS root: ", acs_root, "\n"))

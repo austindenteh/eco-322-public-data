@@ -32,6 +32,10 @@ set more off
 * ============================================================================
 * 1. DEFINE PATHS AND LOAD DATA
 * ============================================================================
+* Auto-detect the dataset root from the current working directory.
+*
+* Optional manual override if auto-detection fails:
+* global acs_root "/path/to/ipums_acs_1_year_sample"
 
 local cwd `"`c(pwd)'"'
 

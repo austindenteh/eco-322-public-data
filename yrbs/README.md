@@ -1,6 +1,6 @@
 # YRBS — Youth Risk Behavior Surveillance System
 
-Starter code and documentation for working with the YRBS combined dataset (national + state + district), 1991–2023.
+Starter code and documentation for working with the YRBS combined files, 1991–2023. The raw CDC files include national, state, and district samples; the default working dataset keeps **State** rows because the public-use national sample does not include state identifiers.
 
 > **📥 Data download required.** The raw data files are too large for GitHub. Download them from the [shared Dropbox folder](https://www.dropbox.com/scl/fo/hxal7xxtckhx2qw6bnyn7/ABbzlW6jzq1pcYHClOA-aPk?rlkey=zsy1ad8wvcno2ag8m8lbe88vz&st=d4fp20qg&dl=0) and place the contents in `data/raw/`. See [Step 1](#step-1-obtain-the-data) for details.
 
@@ -12,7 +12,7 @@ The Youth Risk Behavior Surveillance System (YRBSS), commonly called the **YRBS*
 - **Repeated cross-section** — a new sample every 2 years (odd years: 1991, 1993, ..., 2023)
 - **Student-level records** from grades 9–12
 - **~15,000–17,000 students per year** (national sample); much larger with state/district samples
-- **Combined dataset** pools national, state, and district surveys into a single file
+- **Combined raw files** pool national, state, and district surveys; the starter output defaults to the state sample
 - **Mental health**: felt sad/hopeless, suicidal ideation, suicide plan, suicide attempts
 - **Substance use**: cigarettes, alcohol, marijuana, and other drugs
 - **Sexual behavior**: sexual activity, condom use, number of partners
@@ -25,12 +25,13 @@ The Youth Risk Behavior Surveillance System (YRBSS), commonly called the **YRBS*
 The combined dataset was downloaded from the **CDC YRBS Data and Documentation** page:
 - https://www.cdc.gov/yrbs/data/index.html
 
-The combined file is built from 9 separate CDC SAS files (1 national + 1 district + 7 state chunks), which are appended into a single dataset. The starter scripts handle this automatically.
+The combined file is built from 9 separate CDC SAS files (1 national + 1 district + 7 state chunks), which are appended into a single raw working file. The standard starter scripts then keep State rows by default for the public working dataset.
 
 **File details:**
-- Combined file: `sadc_2023_combined_all.dta` (~837 MB, created by starter scripts)
+- Combined file: `sadc_2023_combined_all.dta` (~3 GB locally; exact size depends on Stata compression)
 - Years: 1991–2023 (biennial)
-- Site types: National, State, District
+- Raw site types: National, State, District
+- Default starter output: State rows only
 
 **Source files** (9 SAS files from CDC, stored in `data/raw/`):
 
@@ -54,6 +55,8 @@ yrbs/
 ├── code/
 │   ├── 01_load_and_prepare.do     ← Build combined file + validate (Stata)
 │   ├── 01_load_and_prepare.R      ← Same in R
+│   ├── 01_load_and_prepare_optional_low_memory.do  ← Optional filtered SAS loader (Stata)
+│   ├── 01_load_and_prepare_optional_low_memory.R   ← Optional filtered SAS loader (R)
 │   ├── 02_clean_and_analyze.do    ← Clean variables, descriptive stats, regressions (Stata)
 │   └── 02_clean_and_analyze.R     ← Same in R
 ├── data/
@@ -91,6 +94,8 @@ The starter scripts will automatically import and combine these files on first r
 
 ### Step 2: Load and Validate
 
+Both languages auto-detect the `yrbs/` folder if you run from `yrbs/`, `yrbs/code/`, or the repo root.
+
 **Stata:**
 ```stata
 cd "/path/to/yrbs"
@@ -104,7 +109,36 @@ source("code/01_load_and_prepare.R")
 
 This script performs two steps:
 1. **Build combined file** (first run only): Imports the 9 CDC SAS files, appends them into one dataset, and saves to `data/raw/sadc_2023_combined_all.dta`. Skips this step if the combined file already exists.
-2. **Load and validate**: Loads the combined file, lowercases variable names, fixes state code issues (AZB→AZ, NYA→NY), runs validation checks, and saves a working copy to `output/`.
+2. **Load and validate**: Loads the combined file, lowercases variable names, fixes state code issues (AZB→AZ, NYA→NY), keeps `sitetype == "State"` by default, runs validation checks, and saves a working copy to `output/`.
+
+Stata saves the working dataset to `output/yrbs_combined.dta`. R saves `output/yrbs_combined.rds` plus `output/yrbs_combined_from_r.dta` so the two languages do not overwrite each other.
+
+The State default is intentional: the public-use National YRBS sample is useful for national prevalence estimates, but it does not include state identifiers. For state-level policy or cross-state work, use the State sample.
+
+### Optional Low-Memory Load
+
+If you only need selected years, site codes, site types, or variables, use the optional low-memory `01` script instead of the standard `01` script:
+
+**Stata:**
+```stata
+do code/01_load_and_prepare_optional_low_memory.do
+```
+
+**R:**
+```r
+source("code/01_load_and_prepare_optional_low_memory.R")
+```
+
+The optional scripts read the 9 raw CDC SAS files directly, so they do **not** require `data/raw/sadc_2023_combined_all.dta` to exist. They also default to State rows, but near the top of each optional script you can further filter settings such as:
+
+```r
+years_to_keep <- c(2019, 2021, 2023)
+site_types_to_keep <- c("State")
+states_to_keep <- c("NC", "SC", "VA")
+extra_keep_vars <- c("q32", "qn32")
+```
+
+These scripts keep extra variables, but they do not automatically harmonize or recode user-added variables. If a user-added item changes meaning or coding across years, handle that later in `02_clean_and_analyze.*` or in your analysis code.
 
 ### Step 3: Clean and Analyze
 
@@ -119,6 +153,8 @@ source("code/02_clean_and_analyze.R")
 ```
 
 This creates cleaned demographic indicators, mental health outcomes, substance use variables, and other health behaviors. Includes descriptive statistics and example regressions.
+
+Stata saves `output/yrbs_clean.dta`. R saves `output/yrbs_clean.rds` plus `output/yrbs_clean_from_r.dta`.
 
 ## Key Variables Created
 
@@ -164,7 +200,7 @@ This creates cleaned demographic indicators, mental health outcomes, substance u
 | Variable | Description |
 |---|---|
 | `year` | Survey year (biennial: 1991, 1993, ..., 2023) |
-| `sitetype` | "National", "State", or "District" |
+| `sitetype` | "State" in the default starter output; raw files can also contain "National" or "District" |
 | `sitecode` | 2-letter state code or district ID |
 | `sitename` | Full name of state or district |
 | `weight` | Survey weight |
@@ -173,15 +209,15 @@ This creates cleaned demographic indicators, mental health outcomes, substance u
 
 ### Site Types
 
-The combined dataset contains three types of samples:
+The raw combined files contain three types of samples:
 
 | Site Type | Description | Use For |
 |---|---|---|
-| **National** | Nationally representative sample (~15K–17K/year) | National prevalence estimates |
+| **National** | Nationally representative sample (~15K–17K/year), but no state identifiers in the public-use file | National prevalence estimates |
 | **State** | State-representative samples (voluntary participation) | State-level analyses, DID designs |
 | **District** | Urban school district samples | District-level analyses |
 
-**Always filter by `sitetype` before analysis.** Combining site types without adjustment would double/triple count some respondents.
+The standard and optional `01` loaders default to `sitetype == "State"`. If you broaden `site_types_to_keep` to include National or District rows, keep site types separate in analysis unless your research design explicitly justifies combining them. Combining site types without adjustment would double/triple count some overlapping populations.
 
 ### Survey Timing
 
@@ -199,13 +235,14 @@ States participate voluntarily. **Not all states have data in every survey year.
 
 ### Question Number Stability
 
-Most key question numbers have been stable for many years:
-- Q14 (unsafe at school): stable since 1993
-- Q26 (felt sad): stable since 1999
-- Q27–Q30 (suicide questions): stable since 1991
-- Q33 (cigarettes), Q42 (alcohol), Q48 (marijuana): generally stable
+The combined CDC file uses stable `q*` variable names for many concepts, but the questionnaire's printed question numbers still shift across years. Treat the combined variable names as the safer cross-year reference, not the questionnaire numbering by itself.
 
-However, the CDC occasionally renumbers questions when items are added or removed. **Always consult the questionnaire content document** (`docs/YRBS_Questionnaire_Content_1991-2023_508.pdf`) to verify question wording and numbering for your specific years of interest.
+For the starter variables in this repo:
+- `felt_sad` is coded only for `1999-2023`
+- `unsafe_at_school` is coded only for `1993-2023`
+- `considered_suicide`, `made_suicide_plan`, `attempted_suicide`, and `injury_suicide_attempt` are coded for `1991-2023`
+
+Always consult `docs/YRBS_Questionnaire_Content_1991-2023_508.pdf` before extending the starter to additional items.
 
 ### String vs. Numeric Variables
 
@@ -213,7 +250,7 @@ In the combined `.dta` file:
 - **q-prefix variables** (q14, q26, q27, etc.) are **string** variables with values like `"1"`, `"2"`, `"3"`
 - **qn-prefix variables** (qn14, qn26, qn27, etc.) are **numeric** CDC-computed binary indicators coded as `1` = response of interest, `2` = otherwise
 
-The cleaning scripts create binary indicators from the q-prefix variables and cross-validate against the qn-prefix variables.
+The cleaning scripts create binary indicators from the q-prefix variables, enforce the documented availability windows, and cross-validate against the qn-prefix variables when those CDC indicators exist.
 
 ### Variable Coding Details
 
@@ -240,12 +277,14 @@ The starter scripts automatically recode these.
 
 - Use `weight` for all weighted analyses
 - In Stata: `[pweight=weight]`
-- In R with the `survey` package:
+- In R for the starter regressions:
 ```r
-library(survey)
-des <- svydesign(ids = ~1, weights = ~weight, data = yrbs)
-svyglm(considered_suicide ~ female + age_years, design = des)
+lm(considered_suicide ~ female + age_years,
+   data = yrbs,
+   weights = weight)
 ```
+
+If you want design-based inference in R, you can still use the `survey` package.
 
 ### Q29 and Q30 Coding Notes
 
@@ -255,7 +294,7 @@ svyglm(considered_suicide ~ female + age_years, design = des)
 ## Common Research Applications
 
 The YRBS is widely used in health economics and public health research for:
-- **Time trends** in adolescent health behaviors (using national data)
+- **Time trends** in adolescent health behaviors (using state data by default here, or national data if you deliberately load the National sample)
 - **Difference-in-differences** studies exploiting state-level policy variation
 - **Cross-state comparisons** of health behavior prevalence
 - **Demographic disparities** in health-risk behaviors (by sex, race, age)

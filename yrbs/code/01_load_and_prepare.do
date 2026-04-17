@@ -11,8 +11,11 @@
 *
 * Input:   data/raw/sadc_2023_*.sas7bdat
 *          (9 files: 1 national + 1 district + 7 state chunks)
-* Output:  data/raw/sadc_2023_combined_all.dta   (~837 MB, created once)
-*          output/yrbs_combined.dta
+* Output:  data/raw/sadc_2023_combined_all.dta   (~3 GB locally, created once)
+*          output/yrbs_combined.dta  (State sample by default)
+*
+* Usage:   Run from yrbs/, yrbs/code/, from the repo root,
+*          or set global yrbs_root first.
 *
 * Data:    Youth Risk Behavior Surveillance System (YRBSS / YRBS).
 *          Biennial school-based survey of US high school students (grades
@@ -20,14 +23,12 @@
 *          including mental health, substance use, sexual behavior, nutrition,
 *          physical activity, and unintentional injury. The combined dataset
 *          pools national, state, and district surveys across all available
-*          years (1991-2023, biennial).
+*          years (1991-2023, biennial). The public working output from this
+*          starter keeps State rows by default because the public-use National
+*          file does not include state identifiers.
 *
 *          Source: CDC Division of Adolescent and School Health (DASH).
 *          Downloaded from: https://www.cdc.gov/yrbs/data/index.html
-*
-* Usage:   Set the global yrbs_root path below, then:
-*            cd "/path/to/yrbs"
-*            do code/01_load_and_prepare.do
 *
 * Author:  Austin Denteh (legacy code and Claude Code)
 * Date:    February 2026
@@ -40,15 +41,46 @@ set maxvar 10000
 * ============================================================================
 * 1. DEFINE PATHS
 * ============================================================================
-* Set the working directory to the yrbs/ folder.
-* Users should update this path to match their system.
+* Auto-detect the dataset root from the current working directory.
+* You can also set global yrbs_root before running the script.
+*
+* Optional manual override if auto-detection fails:
+* global yrbs_root "/path/to/yrbs"
 
-global yrbs_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/yrbs"
+local cwd `"`c(pwd)'"'
+if "$yrbs_root" != "" & fileexists("$yrbs_root/code/01_load_and_prepare.do") {
+    global yrbs_root "$yrbs_root"
+}
+else if fileexists("code/01_load_and_prepare.do") & fileexists("README.md") {
+    global yrbs_root "`cwd'"
+}
+else if fileexists("01_load_and_prepare.do") & fileexists("../README.md") {
+    global yrbs_root "`cwd'/.."
+}
+else if fileexists("yrbs/code/01_load_and_prepare.do") & fileexists("yrbs/README.md") {
+    global yrbs_root "`cwd'/yrbs"
+}
+else {
+    display as error "Could not locate the yrbs/ directory."
+    display as error "Run from yrbs/, yrbs/code/, the repo root, or set global yrbs_root first."
+    exit 198
+}
+
 cd "$yrbs_root"
+display as text "Using YRBS root: $yrbs_root"
 
 local raw_sas_dir "data/raw"
 local raw_dta     "data/raw/sadc_2023_combined_all.dta"
 local out_dta     "output/yrbs_combined.dta"
+
+* ============================================================================
+* USER SETTINGS
+* ============================================================================
+* The public-use National YRBS sample does not include state identifiers. This
+* starter therefore defaults to the State sample, which is the feasible default
+* for state-level policy and cross-state work. To broaden the working dataset,
+* edit this line deliberately, for example "State District" or empty quotes.
+local site_types_to_keep "State"
 
 * ============================================================================
 * 2. BUILD COMBINED FILE FROM RAW SAS FILES (if not already built)
@@ -105,7 +137,8 @@ else {
 * 3. LOAD COMBINED DATA
 * ============================================================================
 * The combined file includes national, state, and district survey data
-* from 1991-2023 (biennial). Each row is one student respondent.
+* from 1991-2023 (biennial). Each row is one student respondent. The saved
+* working copy below is filtered using site_types_to_keep.
 
 display as text _newline "============================================"
 display as text "   LOADING YRBS COMBINED DATA"
@@ -156,7 +189,25 @@ replace sitecode = "AZ" if sitecode == "AZB"
 replace sitecode = "NY" if sitecode == "NYA"
 
 * ============================================================================
-* 7. SORT AND SAVE
+* 7. KEEP DEFAULT SITE TYPE(S)
+* ============================================================================
+
+if trim(`"`site_types_to_keep'"') != "" {
+    local n_before_filter = _N
+    gen byte _keep_site_type = 0
+    foreach s of local site_types_to_keep {
+        replace _keep_site_type = 1 if lower(sitetype) == lower("`s'")
+    }
+    keep if _keep_site_type == 1
+    drop _keep_site_type
+    display as text "Kept " _N " of `n_before_filter' rows after site type filter: `site_types_to_keep'"
+}
+else {
+    display as text "No site type filter applied. The working dataset keeps all site types."
+}
+
+* ============================================================================
+* 8. SORT AND SAVE
 * ============================================================================
 
 sort year sitetype sitecode
@@ -168,14 +219,14 @@ display as text "Observations: " _N
 display as text "Variables: " c(k)
 
 * ============================================================================
-* 8. VALIDATION CHECKS
+* 9. VALIDATION CHECKS
 * ============================================================================
 
 display as text _newline "============================================"
 display as text "   VALIDATION CHECKS"
 display as text "============================================"
 
-* --- 7a. Check year range ---
+* --- 9a. Check year range ---
 quietly summarize year
 if r(min) == 1991 & r(max) == 2023 {
     display as text "[PASS] Year range: " r(min) " to " r(max)
@@ -184,7 +235,7 @@ else {
     display as error "[WARN] Expected 1991-2023, found " r(min) " to " r(max)
 }
 
-* --- 7b. Check biennial pattern ---
+* --- 9b. Check biennial pattern ---
 * Years should be odd numbers only
 quietly levelsof year, local(years)
 local all_odd = 1
@@ -198,21 +249,12 @@ if `all_odd' == 1 {
     display as text "[PASS] All survey years are odd (biennial pattern)"
 }
 
-* --- 7c. Check site types ---
+* --- 9c. Check site types ---
 quietly tab sitetype
-display as text "[INFO] Site types present: " r(r) " categories"
+display as text "[INFO] Site types loaded: " r(r) " categories"
 
-* --- 7d. Check total is plausible ---
-* Typical combined file: ~4-6 million observations across all years
-if _N > 1000000 & _N < 10000000 {
-    display as text "[PASS] Total observations (" _N ") is plausible"
-}
-else {
-    display as error "[WARN] Total observations (" _N ") seems unusual"
-}
-
-* --- 7e. Check key variables exist ---
-local key_vars "year sitetype sitecode sitename sex age race4 grade weight q26 q27 q28 q29 q30"
+* --- 9d. Check key variables exist ---
+local key_vars "year sitetype sitecode sitename sex age race4 grade weight q14 q26 q27 q28 q29 q30 q33 q42 q48"
 local all_exist = 1
 local missing_vars ""
 foreach v of local key_vars {
@@ -229,7 +271,7 @@ else {
     display as error "[FAIL] Missing variable(s):`missing_vars'"
 }
 
-* --- 7f. Check weight variable ---
+* --- 9e. Check weight variable ---
 quietly summarize weight
 if r(N) > 0 & r(mean) > 0 {
     display as text "[PASS] Survey weight has non-missing, positive values"
@@ -239,7 +281,7 @@ else {
     display as error "[FAIL] Survey weight has issues: N=" r(N) ", mean=" r(mean)
 }
 
-* --- 7g. Check key demographics ---
+* --- 9f. Check key demographics ---
 display as text _newline "--- Quick demographic summary ---"
 display as text "Sex distribution:"
 tab sex, missing
@@ -253,7 +295,7 @@ tab race4, missing
 display as text "Grade distribution:"
 tab grade, missing
 
-* --- 7h. Check state counts ---
+* --- 9g. Check state counts ---
 display as text _newline "--- States in state-level data ---"
 preserve
 keep if sitetype == "State"
@@ -262,7 +304,7 @@ display as text "[INFO] Number of unique state codes: " `: word count `states''
 display as text "[INFO] States: `states'"
 restore
 
-* --- 7i. Quick summary of key variables ---
+* --- 9h. Quick summary of key variables ---
 display as text _newline "--- Quick summary ---"
 summarize year age weight
 
@@ -275,13 +317,11 @@ display as text _newline "Next step: run 02_clean_and_analyze.do"
 * NOTES ON THE COMBINED DATASET:
 *
 * 1. SITE TYPES:
-*    - "National" = nationally representative sample (~15,000-17,000 per year)
-*    - "State" = state-level representative samples (not all states every year)
-*    - "District" = large urban school district samples (optional participation)
-*
-*    For most analyses, you will want to filter by sitetype. Use "National" for
-*    nationally representative estimates. Use "State" for state-level analyses
-*    (e.g., difference-in-differences across states).
+*    The raw combined files contain "National", "State", and "District" rows,
+*    but this starter saves State rows by default because the public-use
+*    National sample does not include state identifiers. If you broaden
+*    site_types_to_keep, keep site types separate in analysis; combining them
+*    without adjustment can double-count overlapping populations.
 *
 * 2. SURVEY TIMING:
 *    The YRBS is biennial (every 2 years), conducted in odd years:

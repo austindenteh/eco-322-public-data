@@ -11,9 +11,11 @@
 #
 # Input:   data/raw/sadc_2023_*.sas7bdat
 #          (9 files: 1 national + 1 district + 7 state chunks)
-# Output:  data/raw/sadc_2023_combined_all.dta   (~837 MB, created once)
-#          output/yrbs_combined.rds
-#          output/yrbs_combined.dta
+# Output:  data/raw/sadc_2023_combined_all.dta   (~3 GB locally, created once)
+#          output/yrbs_combined.rds  (State sample by default)
+#          output/yrbs_combined_from_r.dta  (optional R export for Stata users)
+#
+# Usage:   Run from yrbs/, yrbs/code/, from the repo root, or set YRBS_ROOT.
 #
 # Data:    Youth Risk Behavior Surveillance System (YRBSS / YRBS).
 #          Biennial school-based survey of US high school students (grades
@@ -21,7 +23,9 @@
 #          including mental health, substance use, sexual behavior, nutrition,
 #          physical activity, and unintentional injury. The combined dataset
 #          pools national, state, and district surveys across all available
-#          years (1991-2023, biennial).
+#          years (1991-2023, biennial). The public working output from this
+#          starter keeps State rows by default because the public-use National
+#          file does not include state identifiers.
 #
 #          Source: CDC Division of Adolescent and School Health (DASH).
 #          Downloaded from: https://www.cdc.gov/yrbs/data/index.html
@@ -33,16 +37,87 @@
 library(haven)
 library(dplyr)
 
+resolve_yrbs_root <- function(script_name) {
+  env_root <- Sys.getenv("YRBS_ROOT", unset = "")
+
+  parent_paths <- function(path) {
+    if (!nzchar(path) || !dir.exists(path)) {
+      return(character())
+    }
+
+    path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+    paths <- path
+
+    repeat {
+      parent <- dirname(path)
+      if (identical(parent, path)) {
+        break
+      }
+      paths <- c(paths, parent)
+      path <- parent
+    }
+
+    paths
+  }
+
+  rstudio_script_dir <- ""
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    rstudio_script <- tryCatch(
+      rstudioapi::getSourceEditorContext()$path,
+      error = function(e) ""
+    )
+    if (nzchar(rstudio_script)) {
+      rstudio_script_dir <- dirname(rstudio_script)
+    }
+  }
+
+  search_paths <- unique(unlist(lapply(c(getwd(), rstudio_script_dir), parent_paths), use.names = FALSE))
+  candidates <- c(env_root, search_paths, file.path(search_paths, "yrbs"))
+  candidates <- unique(candidates[nzchar(candidates)])
+
+  for (path in candidates) {
+    if (dir.exists(path) &&
+        file.exists(file.path(path, "README.md")) &&
+        file.exists(file.path(path, "code", script_name))) {
+      return(normalizePath(path, winslash = "/", mustWork = TRUE))
+    }
+  }
+
+  stop(
+    paste(
+      "Could not locate the yrbs/ directory.",
+      "Run this script from yrbs/, yrbs/code/, from the repo root,",
+      "or set YRBS_ROOT to the yrbs path.",
+      paste0("Current working directory: ", getwd()),
+      'Manual override: Sys.setenv(YRBS_ROOT = "/path/to/yrbs")'
+    )
+  )
+}
+
+# ============================================================================
+# USER SETTINGS
+# ============================================================================
+# The public-use National YRBS sample does not include state identifiers. This
+# starter therefore defaults to the State sample, which is the feasible default
+# for state-level policy and cross-state work. To broaden the working dataset,
+# edit this line deliberately, for example c("State", "District") or NULL.
+site_types_to_keep <- c("State")
+
 # ============================================================================
 # 1. DEFINE PATHS
 # ============================================================================
+# Auto-detect the dataset root from the current working directory.
+#
+# Optional manual override if auto-detection fails:
+# Sys.setenv(YRBS_ROOT = "/path/to/yrbs")
 
-yrbs_root <- "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/yrbs"
+yrbs_root <- resolve_yrbs_root("01_load_and_prepare.R")
+cat(paste0("Using YRBS root: ", yrbs_root, "\n"))
 
 raw_sas_dir <- file.path(yrbs_root, "data", "raw")
 raw_dta     <- file.path(yrbs_root, "data", "raw", "sadc_2023_combined_all.dta")
 out_rds     <- file.path(yrbs_root, "output", "yrbs_combined.rds")
-out_dta     <- file.path(yrbs_root, "output", "yrbs_combined.dta")
+out_dta     <- file.path(yrbs_root, "output", "yrbs_combined_from_r.dta")
 
 # ============================================================================
 # 2. BUILD COMBINED FILE FROM RAW SAS FILES (if not already built)
@@ -102,7 +177,8 @@ if (!file.exists(raw_dta)) {
 # 3. LOAD COMBINED DATA
 # ============================================================================
 # The combined file includes national, state, and district survey data
-# from 1991-2023 (biennial). Each row is one student respondent.
+# from 1991-2023 (biennial). Each row is one student respondent. The saved
+# working copy below is filtered using site_types_to_keep.
 
 cat("\n============================================\n")
 cat("   LOADING YRBS COMBINED DATA\n")
@@ -133,7 +209,31 @@ yrbs <- yrbs %>%
   ))
 
 # ============================================================================
-# 6. SORT AND SAVE
+# 6. KEEP DEFAULT SITE TYPE(S)
+# ============================================================================
+
+if (!is.null(site_types_to_keep)) {
+  site_types_to_keep <- unique(tolower(trimws(site_types_to_keep)))
+  site_types_to_keep <- site_types_to_keep[nzchar(site_types_to_keep)]
+  if (length(site_types_to_keep) == 0) {
+    stop("site_types_to_keep must be NULL or contain at least one site type.")
+  }
+
+  n_before_filter <- nrow(yrbs)
+  yrbs <- yrbs %>% filter(tolower(sitetype) %in% site_types_to_keep)
+  cat(
+    paste0(
+      "Kept ", format(nrow(yrbs), big.mark = ","), " of ",
+      format(n_before_filter, big.mark = ","), " rows after site type filter: ",
+      paste(site_types_to_keep, collapse = ", "), "\n"
+    )
+  )
+} else {
+  cat("No site type filter applied. The working dataset keeps all site types.\n")
+}
+
+# ============================================================================
+# 7. SORT AND SAVE
 # ============================================================================
 
 cat("\n============================================\n")
@@ -156,14 +256,14 @@ cat(paste0("Observations: ", nrow(yrbs), "\n"))
 cat(paste0("Variables: ", ncol(yrbs), "\n"))
 
 # ============================================================================
-# 7. VALIDATION CHECKS
+# 8. VALIDATION CHECKS
 # ============================================================================
 
 cat("\n============================================\n")
 cat("   VALIDATION CHECKS\n")
 cat("============================================\n\n")
 
-# --- 7a. Check year range ---
+# --- 8a. Check year range ---
 yr_range <- range(yrbs$year, na.rm = TRUE)
 if (yr_range[1] == 1991 & yr_range[2] == 2023) {
   cat(paste0("[PASS] Year range: ", yr_range[1], " to ", yr_range[2], "\n"))
@@ -171,7 +271,7 @@ if (yr_range[1] == 1991 & yr_range[2] == 2023) {
   cat(paste0("[WARN] Expected 1991-2023, found ", yr_range[1], " to ", yr_range[2], "\n"))
 }
 
-# --- 7b. Check biennial pattern ---
+# --- 8b. Check biennial pattern ---
 survey_years <- sort(unique(yrbs$year))
 all_odd <- all(survey_years %% 2 == 1)
 if (all_odd) {
@@ -181,20 +281,13 @@ if (all_odd) {
   cat(paste0("[WARN] Even years found: ", paste(even_years, collapse = ", "), "\n"))
 }
 
-# --- 7c. Check site types ---
-cat(paste0("[INFO] Site types: ", paste(unique(yrbs$sitetype), collapse = ", "), "\n"))
+# --- 8c. Check site types ---
+cat(paste0("[INFO] Site types loaded: ", paste(sort(unique(yrbs$sitetype)), collapse = ", "), "\n"))
 
-# --- 7d. Check total is plausible ---
-n_total <- nrow(yrbs)
-if (n_total > 1000000 & n_total < 10000000) {
-  cat(paste0("[PASS] Total observations (", n_total, ") is plausible\n"))
-} else {
-  cat(paste0("[WARN] Total observations (", n_total, ") seems unusual\n"))
-}
-
-# --- 7e. Check key variables exist ---
+# --- 8d. Check key variables exist ---
 key_vars <- c("year", "sitetype", "sitecode", "sitename", "sex", "age",
-              "race4", "grade", "weight", "q26", "q27", "q28", "q29", "q30")
+              "race4", "grade", "weight", "q14", "q26", "q27", "q28",
+              "q29", "q30", "q33", "q42", "q48")
 present <- key_vars %in% names(yrbs)
 if (all(present)) {
   cat("[PASS] All key variables present\n")
@@ -202,32 +295,32 @@ if (all(present)) {
   cat(paste0("[FAIL] Missing: ", paste(key_vars[!present], collapse = ", "), "\n"))
 }
 
-# --- 7f. Check weight variable ---
+# --- 8e. Check weight variable ---
 wt_summary <- summary(yrbs$weight[!is.na(yrbs$weight)])
 cat(paste0("[INFO] Weight: N=", sum(!is.na(yrbs$weight)),
            ", mean=", round(mean(yrbs$weight, na.rm = TRUE), 4),
            ", min=", round(min(yrbs$weight, na.rm = TRUE), 4),
            ", max=", round(max(yrbs$weight, na.rm = TRUE), 4), "\n"))
 
-# --- 7g. Observations by site type ---
+# --- 8f. Observations by site type ---
 cat("\n--- Observations by site type ---\n")
 sitetype_table <- yrbs %>%
   count(sitetype) %>%
   mutate(pct = round(n / sum(n) * 100, 1))
 print(as.data.frame(sitetype_table), row.names = FALSE)
 
-# --- 7h. Observations by year ---
+# --- 8g. Observations by year ---
 cat("\n--- Observations by year ---\n")
 year_table <- yrbs %>% count(year)
 print(as.data.frame(year_table), row.names = FALSE)
 
-# --- 7i. States in state-level data ---
+# --- 8h. States in loaded state-level data ---
 state_data <- yrbs %>% filter(sitetype == "State")
 states <- sort(unique(state_data$sitecode))
 cat(paste0("\n[INFO] Number of unique state codes: ", length(states), "\n"))
 cat(paste0("[INFO] States: ", paste(states, collapse = ", "), "\n"))
 
-# --- 7j. Key demographics ---
+# --- 8i. Key demographics ---
 cat("\n--- Sex distribution ---\n")
 print(as.data.frame(yrbs %>% count(sex)), row.names = FALSE)
 
@@ -268,12 +361,11 @@ cat("\nNext step: run 02_clean_and_analyze.R\n")
 # NOTES ON THE COMBINED DATASET:
 #
 # 1. SITE TYPES:
-#    - "National" = nationally representative sample (~15,000-17,000 per year)
-#    - "State" = state-level representative samples (not all states every year)
-#    - "District" = large urban school district samples (optional participation)
-#
-#    For most analyses, filter by sitetype. Use "National" for nationally
-#    representative estimates. Use "State" for state-level analyses.
+#    The raw combined files contain "National", "State", and "District" rows,
+#    but this starter saves State rows by default because the public-use
+#    National sample does not include state identifiers. If you broaden
+#    site_types_to_keep, keep site types separate in analysis; combining them
+#    without adjustment can double-count overlapping populations.
 #
 # 2. SURVEY TIMING:
 #    Biennial (every 2 years), conducted in odd years: 1991, 1993, ..., 2023.

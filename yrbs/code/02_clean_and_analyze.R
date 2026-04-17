@@ -8,7 +8,9 @@
 #
 # Input:   output/yrbs_combined.rds  (from 01_load_and_prepare.R)
 # Output:  output/yrbs_clean.rds
-#          output/yrbs_clean.dta
+#          output/yrbs_clean_from_r.dta  (optional R export for Stata users)
+#
+# Usage:   Run from yrbs/, yrbs/code/, from the repo root, or set YRBS_ROOT.
 #
 # Author:  Austin Denteh (legacy code and Claude Code)
 # Date:    February 2026
@@ -18,15 +20,77 @@ library(haven)
 library(dplyr)
 library(broom)
 
+resolve_yrbs_root <- function(script_name) {
+  env_root <- Sys.getenv("YRBS_ROOT", unset = "")
+
+  parent_paths <- function(path) {
+    if (!nzchar(path) || !dir.exists(path)) {
+      return(character())
+    }
+
+    path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+    paths <- path
+
+    repeat {
+      parent <- dirname(path)
+      if (identical(parent, path)) {
+        break
+      }
+      paths <- c(paths, parent)
+      path <- parent
+    }
+
+    paths
+  }
+
+  rstudio_script_dir <- ""
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    rstudio_script <- tryCatch(
+      rstudioapi::getSourceEditorContext()$path,
+      error = function(e) ""
+    )
+    if (nzchar(rstudio_script)) {
+      rstudio_script_dir <- dirname(rstudio_script)
+    }
+  }
+
+  search_paths <- unique(unlist(lapply(c(getwd(), rstudio_script_dir), parent_paths), use.names = FALSE))
+  candidates <- c(env_root, search_paths, file.path(search_paths, "yrbs"))
+  candidates <- unique(candidates[nzchar(candidates)])
+
+  for (path in candidates) {
+    if (dir.exists(path) &&
+        file.exists(file.path(path, "README.md")) &&
+        file.exists(file.path(path, "code", script_name))) {
+      return(normalizePath(path, winslash = "/", mustWork = TRUE))
+    }
+  }
+
+  stop(
+    paste(
+      "Could not locate the yrbs/ directory.",
+      "Run this script from yrbs/, yrbs/code/, from the repo root,",
+      "or set YRBS_ROOT to the yrbs path.",
+      paste0("Current working directory: ", getwd()),
+      'Manual override: Sys.setenv(YRBS_ROOT = "/path/to/yrbs")'
+    )
+  )
+}
+
 # ============================================================================
 # 1. DEFINE PATHS
 # ============================================================================
+# Auto-detect the dataset root from the current working directory.
+#
+# Optional manual override if auto-detection fails:
+# Sys.setenv(YRBS_ROOT = "/path/to/yrbs")
 
-yrbs_root <- "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/yrbs"
+yrbs_root <- resolve_yrbs_root("02_clean_and_analyze.R")
+cat(paste0("Using YRBS root: ", yrbs_root, "\n"))
 
 in_rds  <- file.path(yrbs_root, "output", "yrbs_combined.rds")
 out_rds <- file.path(yrbs_root, "output", "yrbs_clean.rds")
-out_dta <- file.path(yrbs_root, "output", "yrbs_clean.dta")
+out_dta <- file.path(yrbs_root, "output", "yrbs_clean_from_r.dta")
 
 # ============================================================================
 # 2. LOAD DATA
@@ -103,7 +167,11 @@ for (v in c("grade9", "grade10", "grade11", "grade12")) {
 # Question variables (q26-q30) are character/string in the combined file.
 # Values: "1", "2", "3", etc. map to response options A, B, C, etc.
 #
-# Q26: Felt sad/hopeless (1=Yes, 2=No) — available 1999-2023
+# The combined CDC file keeps stable q-variable names for many concepts, but
+# actual questionnaire numbering shifts across years. We therefore impose the
+# documented availability windows when creating starter variables.
+#
+# Q26: Felt sad/hopeless (1=Yes, 2=No) — code only for 1999-2023
 # Q27: Considered suicide (1=Yes, 2=No) — available 1991-2023
 # Q28: Made suicide plan (1=Yes, 2=No) — available 1991-2023
 # Q29: Attempted suicide (1=0 times, 2=1 time, 3=2-3, 4=4-5, 5=6+)
@@ -115,6 +183,7 @@ yrbs <- yrbs %>%
   mutate(
     # Q26: Felt sad or hopeless
     felt_sad = case_when(
+      year < 1999 ~ NA_integer_,
       q26 == "1" ~ 1L,
       q26 == "2" ~ 0L,
       TRUE ~ NA_integer_
@@ -182,7 +251,7 @@ yrbs <- yrbs %>%
 # ============================================================================
 # 6. ADDITIONAL HEALTH BEHAVIORS
 # ============================================================================
-# Q14: Missed school due to feeling unsafe (past 30 days)
+# Q14: Missed school due to feeling unsafe (past 30 days), coded for 1993-2023
 # "1" = 0 days, "2"-"6" = 1+ days
 
 cat("Creating additional health behavior outcomes...\n")
@@ -190,6 +259,7 @@ cat("Creating additional health behavior outcomes...\n")
 yrbs <- yrbs %>%
   mutate(
     unsafe_at_school = case_when(
+      year < 1993 ~ NA_integer_,
       q14 == "1" ~ 0L,
       q14 %in% c("2", "3", "4", "5", "6") ~ 1L,
       TRUE ~ NA_integer_
@@ -206,6 +276,7 @@ yrbs <- yrbs %>%
 cat("\nCross-validating against CDC QN variables...\n")
 
 qn_mapping <- list(
+  unsafe_at_school   = "qn14",
   felt_sad           = "qn26",
   considered_suicide = "qn27",
   made_suicide_plan  = "qn28"
@@ -311,10 +382,16 @@ for (v in sub_vars) {
               v, format(n_valid, big.mark = ","), mean_val))
 }
 
-# --- 9f. Mental health trends over time (national data) ---
-cat("\n--- Mental health trends (national data) ---\n")
-national <- yrbs %>% filter(sitetype == "National")
-trends <- national %>%
+# --- 9f. Mental health trends over time (state sample) ---
+cat("\n--- Mental health trends (state sample) ---\n")
+state_data <- yrbs %>% filter(sitetype == "State")
+analysis_sample <- state_data
+if (nrow(analysis_sample) == 0) {
+  cat("  [WARN] No State rows are loaded; using all loaded rows for examples.\n")
+  analysis_sample <- yrbs
+}
+
+trends <- analysis_sample %>%
   group_by(year) %>%
   summarize(
     n = n(),
@@ -325,9 +402,9 @@ trends <- national %>%
   )
 print(as.data.frame(trends), row.names = FALSE)
 
-# --- 9g. Mental health by sex (national data) ---
-cat("\n--- Mental health by sex (national data) ---\n")
-by_sex <- national %>%
+# --- 9g. Mental health by sex (state sample) ---
+cat("\n--- Mental health by sex (state sample) ---\n")
+by_sex <- analysis_sample %>%
   filter(!is.na(female)) %>%
   group_by(female) %>%
   summarize(
@@ -342,7 +419,6 @@ print(as.data.frame(by_sex), row.names = FALSE)
 
 # --- 9h. State participation ---
 cat("\n--- State-level data: unique states ---\n")
-state_data <- yrbs %>% filter(sitetype == "State")
 states <- sort(unique(state_data$sitecode))
 cat(paste0("  Number of unique state codes: ", length(states), "\n"))
 cat(paste0("  States: ", paste(states, collapse = ", "), "\n"))
@@ -355,29 +431,81 @@ cat("\n============================================\n")
 cat("   EXAMPLE REGRESSIONS\n")
 cat("============================================\n\n")
 
-# --- 10a. OLS: Considered suicide ~ demographics (national, unweighted) ---
-cat("--- OLS: Considered suicide ~ demographics (national, unweighted) ---\n")
-ols <- lm(considered_suicide ~ female + age_years + black + hispanic + otherrace
-           + factor(year),
-           data = national)
-print(tidy(ols) %>% head(10))
-cat("  (showing first 10 coefficients)\n")
+run_example_lm <- function(data, outcome, label, use_weights = FALSE,
+                           include_state_fe = FALSE) {
+  cat(paste0(label, "\n"))
 
-# --- 10b. Weighted OLS (national) ---
-cat("\n--- Weighted OLS: Considered suicide ~ demographics (national) ---\n")
-wols <- lm(considered_suicide ~ female + age_years + black + hispanic + otherrace
-            + factor(year),
-            data = national,
-            weights = weight)
-print(tidy(wols) %>% head(10))
+  needed <- c(outcome, "female", "age_years", "black", "hispanic", "otherrace")
+  if (use_weights) {
+    needed <- c(needed, "weight")
+  }
+  if (include_state_fe) {
+    needed <- c(needed, "sitecode")
+  }
+
+  model_data <- data %>%
+    filter(if_all(all_of(needed), ~ !is.na(.)))
+
+  if (nrow(model_data) == 0 || length(unique(model_data[[outcome]])) < 2) {
+    cat("  [SKIP] Not enough nonmissing variation for this example model.\n")
+    return(invisible(NULL))
+  }
+
+  rhs <- "female + age_years + black + hispanic + otherrace"
+  if (n_distinct(model_data$year) > 1) {
+    rhs <- paste(rhs, "+ factor(year)")
+  } else {
+    cat("  [INFO] Only one year is loaded, so year fixed effects are omitted.\n")
+  }
+  if (include_state_fe && n_distinct(model_data$sitecode) > 1) {
+    rhs <- paste(rhs, "+ factor(sitecode)")
+  } else if (include_state_fe) {
+    cat("  [INFO] Only one state/site code is loaded, so state fixed effects are omitted.\n")
+  }
+
+  formula <- as.formula(paste(outcome, "~", rhs))
+  if (use_weights) {
+    model <- lm(formula, data = model_data, weights = weight)
+  } else {
+    model <- lm(formula, data = model_data)
+  }
+
+  print(tidy(model) %>% head(10))
+  cat("  (showing first 10 coefficients)\n")
+}
+
+# --- 10a. OLS: Considered suicide ~ demographics (state sample, unweighted) ---
+run_example_lm(
+  analysis_sample,
+  outcome = "considered_suicide",
+  label = "--- OLS: Considered suicide ~ demographics (state sample, unweighted) ---",
+  use_weights = FALSE
+)
+
+# --- 10b. Weighted OLS (state sample) ---
+run_example_lm(
+  analysis_sample,
+  outcome = "considered_suicide",
+  label = "\n--- Weighted OLS: Considered suicide ~ demographics (state sample) ---",
+  use_weights = TRUE
+)
 
 # --- 10c. Weighted OLS: Felt sad (1999+ only) ---
-cat("\n--- Weighted OLS: Felt sad ~ demographics (national, 1999+) ---\n")
-wols_sad <- lm(felt_sad ~ female + age_years + black + hispanic + otherrace
-               + factor(year),
-               data = national %>% filter(year >= 1999),
-               weights = weight)
-print(tidy(wols_sad) %>% head(10))
+run_example_lm(
+  analysis_sample %>% filter(year >= 1999),
+  outcome = "felt_sad",
+  label = "\n--- Weighted OLS: Felt sad ~ demographics (state sample, 1999+) ---",
+  use_weights = TRUE
+)
+
+# --- 10d. Weighted OLS with state fixed effects ---
+run_example_lm(
+  analysis_sample,
+  outcome = "considered_suicide",
+  label = "\n--- Weighted OLS: Considered suicide ~ demographics + state FE ---",
+  use_weights = TRUE,
+  include_state_fe = TRUE
+)
 
 cat("\n============================================\n")
 cat("   DONE\n")
@@ -386,18 +514,24 @@ cat("============================================\n")
 ################################################################################
 # NOTES:
 #
-# 1. For proper survey-weighted analysis with complex sampling:
+# 1. The starter regressions use simple analytic weights:
+#      lm(considered_suicide ~ female + age_years + black + hispanic,
+#         data = yrbs, weights = weight)
+#    For design-based inference with the survey package, you can still use:
 #      library(survey)
 #      des <- svydesign(ids = ~1, weights = ~weight, data = yrbs)
 #      svyglm(considered_suicide ~ female + age_years + black + hispanic,
 #             design = des, family = quasibinomial())
 #
-# 2. For state-level analyses (e.g., difference-in-differences):
-#      state_data <- yrbs %>% filter(sitetype == "State")
-#      # Note: not all states participate every year (unbalanced panel)
+# 2. The default 01_load script saves State rows because the public-use
+#    National sample does not include state identifiers. If you broaden the
+#    loader to keep National or District rows, keep site types separate unless
+#    your research design explicitly justifies combining them.
 #
-# 3. QUESTION NUMBERS can shift across survey years. Always verify using
-#    the questionnaire content document in docs/.
+# 3. The combined CDC file uses stable q-variable names for many concepts, but
+#    the questionnaire's printed question numbers shift across years. We code
+#    felt_sad for 1999+ and unsafe_at_school for 1993+ to match the documented
+#    availability windows. Always verify new variables in docs/.
 #
 # 4. The 2021 survey was the first post-COVID administration. Be cautious
 #    comparing 2019 and 2021+ data.

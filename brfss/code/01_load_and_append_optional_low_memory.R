@@ -29,7 +29,40 @@ library(purrr)      # map(), compact()
 
 resolve_brfss_root <- function(script_name) {
   env_root <- Sys.getenv("BRFSS_ROOT", unset = "")
-  candidates <- c(env_root, getwd(), dirname(getwd()), file.path(getwd(), "brfss"))
+
+  parent_paths <- function(path) {
+    if (!nzchar(path) || !dir.exists(path)) {
+      return(character())
+    }
+
+    path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+    paths <- path
+
+    repeat {
+      parent <- dirname(path)
+      if (identical(parent, path)) {
+        break
+      }
+      paths <- c(paths, parent)
+      path <- parent
+    }
+
+    paths
+  }
+
+  rstudio_script_dir <- ""
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    rstudio_script <- tryCatch(
+      rstudioapi::getSourceEditorContext()$path,
+      error = function(e) ""
+    )
+    if (nzchar(rstudio_script)) {
+      rstudio_script_dir <- dirname(rstudio_script)
+    }
+  }
+
+  search_paths <- unique(unlist(lapply(c(getwd(), rstudio_script_dir), parent_paths), use.names = FALSE))
+  candidates <- c(env_root, search_paths, file.path(search_paths, "brfss"))
   candidates <- unique(candidates[nzchar(candidates)])
 
   for (path in candidates) {
@@ -44,7 +77,9 @@ resolve_brfss_root <- function(script_name) {
     paste(
       "Could not locate the brfss/ directory.",
       "Run this script from brfss/, brfss/code/, from the repo root,",
-      "or set BRFSS_ROOT to the brfss path."
+      "or set BRFSS_ROOT to the brfss path.",
+      paste0("Current working directory: ", getwd()),
+      'Manual override: Sys.setenv(BRFSS_ROOT = "/path/to/brfss")'
     )
   )
 }
@@ -162,6 +197,10 @@ extra_var_families <- list()
 # ============================================================================
 # 1. DEFINE PATHS
 # ============================================================================
+# Auto-detect the dataset root from the current working directory.
+#
+# Optional manual override if auto-detection fails:
+# Sys.setenv(BRFSS_ROOT = "/path/to/brfss")
 
 brfss_root <- resolve_brfss_root("01_load_and_append_optional_low_memory.R")
 cat(paste0("Using BRFSS root: ", brfss_root, "\n"))

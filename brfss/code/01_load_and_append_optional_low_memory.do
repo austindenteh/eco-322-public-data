@@ -30,6 +30,10 @@ set more off
 * ============================================================================
 * 1. DEFINE PATHS
 * ============================================================================
+* Auto-detect the dataset root from the current working directory.
+*
+* Optional manual override if auto-detection fails:
+* global brfss_root "/path/to/brfss"
 
 local cwd `"`c(pwd)'"'
 if "$brfss_root" != "" & fileexists("$brfss_root/code/01_load_and_append_optional_low_memory.do") {

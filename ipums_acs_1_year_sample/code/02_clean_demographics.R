@@ -35,14 +35,51 @@ library(dplyr)
 # ============================================================================
 # 1. DEFINE PATHS AND LOAD DATA
 # ============================================================================
+# Auto-detect the dataset root from ACS_ROOT, the dataset folder, the code/
+# folder, or the repo root.
+#
+# Optional manual override if auto-detection fails:
+# Sys.setenv(ACS_ROOT = "/path/to/ipums_acs_1_year_sample")
 
 resolve_acs_root <- function() {
   env_root <- Sys.getenv("ACS_ROOT", unset = "")
+
+  parent_paths <- function(path) {
+    if (!nzchar(path) || !dir.exists(path)) {
+      return(character())
+    }
+
+    path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+    paths <- path
+
+    repeat {
+      parent <- dirname(path)
+      if (identical(parent, path)) {
+        break
+      }
+      paths <- c(paths, parent)
+      path <- parent
+    }
+
+    paths
+  }
+
+  rstudio_script_dir <- ""
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    rstudio_script <- tryCatch(
+      rstudioapi::getSourceEditorContext()$path,
+      error = function(e) ""
+    )
+    if (nzchar(rstudio_script)) {
+      rstudio_script_dir <- dirname(rstudio_script)
+    }
+  }
+
+  search_paths <- unique(unlist(lapply(c(getwd(), rstudio_script_dir), parent_paths), use.names = FALSE))
   candidates <- c(
     if (nzchar(env_root)) env_root,
-    getwd(),
-    dirname(getwd()),
-    file.path(getwd(), "ipums_acs_1_year_sample")
+    search_paths,
+    file.path(search_paths, "ipums_acs_1_year_sample")
   )
   candidates <- unique(candidates[nzchar(candidates)])
 
@@ -56,7 +93,9 @@ resolve_acs_root <- function() {
   stop(
     "Could not locate the ipums_acs_1_year_sample/ directory.\n",
     "Run this script from ipums_acs_1_year_sample/, ipums_acs_1_year_sample/code/, ",
-    "or the repo root, or set ACS_ROOT first."
+    "or the repo root, or set ACS_ROOT first.\n",
+    "Current working directory: ", getwd(), "\n",
+    'Manual override: Sys.setenv(ACS_ROOT = "/path/to/ipums_acs_1_year_sample")'
   )
 }
 

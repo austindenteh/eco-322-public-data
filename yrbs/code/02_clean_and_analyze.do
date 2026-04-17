@@ -9,6 +9,9 @@
 * Input:   output/yrbs_combined.dta  (from 01_load_and_prepare.do)
 * Output:  output/yrbs_clean.dta
 *
+* Usage:   Run from yrbs/, yrbs/code/, from the repo root,
+*          or set global yrbs_root first.
+*
 * Author:  Austin Denteh (legacy code and Claude Code)
 * Date:    February 2026
 ********************************************************************************
@@ -20,9 +23,32 @@ set maxvar 10000
 * ============================================================================
 * 1. DEFINE PATHS
 * ============================================================================
+* Auto-detect the dataset root from the current working directory.
+*
+* Optional manual override if auto-detection fails:
+* global yrbs_root "/path/to/yrbs"
 
-global yrbs_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/yrbs"
+local cwd `"`c(pwd)'"'
+if "$yrbs_root" != "" & fileexists("$yrbs_root/code/02_clean_and_analyze.do") {
+    global yrbs_root "$yrbs_root"
+}
+else if fileexists("code/02_clean_and_analyze.do") & fileexists("README.md") {
+    global yrbs_root "`cwd'"
+}
+else if fileexists("02_clean_and_analyze.do") & fileexists("../README.md") {
+    global yrbs_root "`cwd'/.."
+}
+else if fileexists("yrbs/code/02_clean_and_analyze.do") & fileexists("yrbs/README.md") {
+    global yrbs_root "`cwd'/yrbs"
+}
+else {
+    display as error "Could not locate the yrbs/ directory."
+    display as error "Run from yrbs/, yrbs/code/, the repo root, or set global yrbs_root first."
+    exit 198
+}
+
 cd "$yrbs_root"
+display as text "Using YRBS root: $yrbs_root"
 
 local in_dta   "output/yrbs_combined.dta"
 local out_dta  "output/yrbs_clean.dta"
@@ -112,7 +138,11 @@ label var grade12 "12th grade"
 * ============================================================================
 * 4. MENTAL HEALTH OUTCOMES
 * ============================================================================
-* Key mental health questions (question numbers stable 1999-2023):
+* The combined CDC file keeps stable q-variable names for many concepts, but
+* the actual questionnaire numbering shifts across years. We therefore impose
+* the documented availability windows when creating starter variables.
+*
+* Key mental health questions:
 *   Q26: "During the past 12 months, did you ever feel so sad or hopeless
 *         almost every day for two weeks or more in a row that you stopped
 *         doing some usual activities?"
@@ -136,8 +166,8 @@ display as text "============================================"
 * --- Q26: Felt sad or hopeless (available 1999-2023) ---
 * "1" = Yes, "2" = No
 gen felt_sad = .
-replace felt_sad = 1 if q26 == "1"
-replace felt_sad = 0 if q26 == "2"
+replace felt_sad = 1 if year >= 1999 & q26 == "1"
+replace felt_sad = 0 if year >= 1999 & q26 == "2"
 label var felt_sad "Felt sad/hopeless >=2 weeks (past 12 months)"
 
 * --- Q27: Considered suicide (available 1991-2023) ---
@@ -223,8 +253,8 @@ display as text "============================================"
 * --- Q14: Unsafe at school ---
 * "1" = 0 days, "2"-"6" = 1+ days
 gen unsafe_at_school = .
-replace unsafe_at_school = 0 if q14 == "1"
-replace unsafe_at_school = 1 if inlist(q14, "2", "3", "4", "5", "6")
+replace unsafe_at_school = 0 if year >= 1993 & q14 == "1"
+replace unsafe_at_school = 1 if year >= 1993 & inlist(q14, "2", "3", "4", "5", "6")
 label var unsafe_at_school "Missed school due to feeling unsafe (past 30 days)"
 
 * ============================================================================
@@ -239,13 +269,24 @@ display as text "   CROSS-VALIDATING AGAINST CDC QN VARIABLES"
 display as text "============================================"
 
 * Create temporary CDC versions for comparison
-foreach v in 26 27 28 {
+foreach v in 14 26 27 28 {
     capture confirm variable qn`v'
     if _rc == 0 {
         gen byte _cdc_qn`v' = .
         replace _cdc_qn`v' = 1 if qn`v' == 1
         replace _cdc_qn`v' = 0 if qn`v' == 2
     }
+}
+
+* Compare unsafe_at_school (q14)
+capture confirm variable _cdc_qn14
+if _rc == 0 {
+    quietly count if unsafe_at_school == _cdc_qn14 & !missing(unsafe_at_school) & !missing(_cdc_qn14)
+    local n_match = r(N)
+    quietly count if unsafe_at_school != _cdc_qn14 & !missing(unsafe_at_school) & !missing(_cdc_qn14)
+    local n_mismatch = r(N)
+    display as text "[CHECK] unsafe_at_school vs qn14: `n_match' matches, `n_mismatch' mismatches"
+    drop _cdc_qn14
 }
 
 * Compare felt_sad (q26)
@@ -325,18 +366,30 @@ summarize felt_sad considered_suicide made_suicide_plan attempted_suicide injury
 display as text _newline "--- Substance use outcomes ---"
 summarize current_cigarettes current_alcohol current_marijuana
 
-* --- 9f. Mental health trends over time (national data) ---
-display as text _newline "--- Mental health trends (national data only) ---"
+* --- 9f. Mental health trends over time (state sample) ---
+display as text _newline "--- Mental health trends (state sample) ---"
 preserve
-keep if sitetype == "National"
-table year, statistic(mean felt_sad considered_suicide attempted_suicide) statistic(count felt_sad) nformat(%9.3f)
+keep if sitetype == "State"
+quietly count
+if r(N) > 0 {
+    table year, statistic(mean felt_sad considered_suicide attempted_suicide) statistic(count felt_sad) nformat(%9.3f)
+}
+else {
+    display as text "[SKIP] No state observations are loaded."
+}
 restore
 
-* --- 9g. Mental health by sex (national data) ---
-display as text _newline "--- Mental health by sex (national data) ---"
+* --- 9g. Mental health by sex (state sample) ---
+display as text _newline "--- Mental health by sex (state sample) ---"
 preserve
-keep if sitetype == "National"
-table female, statistic(mean felt_sad considered_suicide attempted_suicide) statistic(count felt_sad) nformat(%9.3f)
+keep if sitetype == "State"
+quietly count
+if r(N) > 0 {
+    table female, statistic(mean felt_sad considered_suicide attempted_suicide) statistic(count felt_sad) nformat(%9.3f)
+}
+else {
+    display as text "[SKIP] No state observations are loaded."
+}
 restore
 
 * --- 9h. State-level participation ---
@@ -355,26 +408,50 @@ display as text _newline "============================================"
 display as text "   EXAMPLE REGRESSIONS"
 display as text "============================================"
 
-* --- 10a. OLS: Considered suicide ~ demographics (national, unweighted) ---
-display as text _newline "--- OLS: Considered suicide ~ demographics (national, unweighted) ---"
-reg considered_suicide female age_years black hispanic otherrace ///
-    i.year if sitetype == "National"
+* --- 10a. OLS: Considered suicide ~ demographics (state sample, unweighted) ---
+display as text _newline "--- OLS: Considered suicide ~ demographics (state sample, unweighted) ---"
+quietly count if sitetype == "State" & !missing(considered_suicide, female, age_years, black, hispanic, otherrace)
+if r(N) > 0 {
+    reg considered_suicide female age_years black hispanic otherrace ///
+        i.year if sitetype == "State"
+}
+else {
+    display as text "[SKIP] Not enough state observations for this example model."
+}
 
-* --- 10b. Weighted OLS: Considered suicide ~ demographics (national) ---
-display as text _newline "--- Weighted OLS: Considered suicide ~ demographics (national) ---"
-reg considered_suicide female age_years black hispanic otherrace ///
-    i.year if sitetype == "National" [pweight=weight]
+* --- 10b. Weighted OLS: Considered suicide ~ demographics (state sample) ---
+display as text _newline "--- Weighted OLS: Considered suicide ~ demographics (state sample) ---"
+quietly count if sitetype == "State" & !missing(considered_suicide, female, age_years, black, hispanic, otherrace, weight)
+if r(N) > 0 {
+    reg considered_suicide female age_years black hispanic otherrace ///
+        i.year if sitetype == "State" [pweight=weight]
+}
+else {
+    display as text "[SKIP] Not enough state observations for this weighted example model."
+}
 
-* --- 10c. Weighted OLS: Felt sad ~ demographics (national) ---
-display as text _newline "--- Weighted OLS: Felt sad ~ demographics (national) ---"
-reg felt_sad female age_years black hispanic otherrace ///
-    i.year if sitetype == "National" & year >= 1999 [pweight=weight]
+* --- 10c. Weighted OLS: Felt sad ~ demographics (state sample) ---
+display as text _newline "--- Weighted OLS: Felt sad ~ demographics (state sample) ---"
+quietly count if sitetype == "State" & year >= 1999 & !missing(felt_sad, female, age_years, black, hispanic, otherrace, weight)
+if r(N) > 0 {
+    reg felt_sad female age_years black hispanic otherrace ///
+        i.year if sitetype == "State" & year >= 1999 [pweight=weight]
+}
+else {
+    display as text "[SKIP] Not enough state observations for this felt_sad weighted example model."
+}
 
 * --- 10d. State-level regression with state FE ---
 display as text _newline "--- State-level: Considered suicide ~ demographics + state FE ---"
-encode sitecode, gen(state_n)
-reg considered_suicide female age_years black hispanic otherrace ///
-    i.year i.state_n if sitetype == "State" [pweight=weight]
+quietly count if sitetype == "State" & !missing(considered_suicide, female, age_years, black, hispanic, otherrace, weight)
+if r(N) > 0 {
+    encode sitecode, gen(state_n)
+    reg considered_suicide female age_years black hispanic otherrace ///
+        i.year i.state_n if sitetype == "State" [pweight=weight]
+}
+else {
+    display as text "[SKIP] No state-level observations are loaded for this example model."
+}
 
 display as text _newline "============================================"
 display as text "   DONE"
@@ -384,10 +461,10 @@ display as text "============================================"
 * NOTES:
 *
 * 1. QUESTION NUMBER STABILITY:
-*    The mental health questions (Q26-Q30) have been at these question
-*    numbers since 1999 (Q26 = felt sad) or 1991 (Q27-Q30).
-*    However, the CDC occasionally renumbers questions. Always check the
-*    questionnaire content document for your specific years of interest.
+*    The combined CDC file uses stable q-variable names for many concepts, but
+*    the questionnaire's printed question numbers shift across years. This
+*    starter therefore codes felt_sad for 1999+ and unsafe_at_school for
+*    1993+ to match the documented availability windows.
 *
 * 2. QN-PREFIX VARIABLES:
 *    The combined dataset includes CDC-computed binary indicators (qn26,
@@ -402,9 +479,10 @@ display as text "============================================"
 *    PSU and stratum variables (if available) with svyset.
 *
 * 4. FILTERING BY SITE TYPE:
-*    - For nationally representative estimates: keep if sitetype == "National"
-*    - For state-level analyses (e.g., DID): keep if sitetype == "State"
-*    - For urban district analyses: keep if sitetype == "District"
+*    The default 01_load script saves State rows because the public-use
+*    National sample does not include state identifiers. If you broaden the
+*    loader to keep National or District rows, keep site types separate unless
+*    your research design explicitly justifies combining them.
 *
 * 5. MISSING DATA:
 *    Q29/Q30 handling is particularly important:
