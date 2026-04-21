@@ -29,7 +29,6 @@
 library(haven)      # write_dta()
 library(dplyr)      # data wrangling
 library(tidyr)      # drop_na(), replace_na()
-library(broom)      # tidy() for regression output
 
 resolve_brfss_root <- function(script_name) {
   env_root <- Sys.getenv("BRFSS_ROOT", unset = "")
@@ -404,8 +403,11 @@ cat(paste0("Variables: ", ncol(brfss), "\n"))
 # ============================================================================
 
 cat("\n============================================\n")
-cat("   DESCRIPTIVE STATISTICS\n")
+cat("   DESCRIPTIVE STATISTICS (optional; not run by default)\n")
 cat("============================================\n\n")
+
+# Uncomment this block if you want example descriptive statistics and regressions.
+if (FALSE) {
 
 # --- 6a. Sample sizes by year ------------------------------------------------
 cat("--- Sample sizes by year ---\n")
@@ -481,7 +483,7 @@ if (nrow(ols_df) > example_max_n) {
 ols_model <- lm(mental_days ~ female + age + factor(race_eth) +
                   factor(educ_cat) + factor(surveyyear),
                 data = ols_df)
-print(tidy(ols_model) %>% head(10))
+print(broom::tidy(ols_model) %>% head(10))
 cat("  (showing first 10 coefficients; full model has year fixed effects)\n")
 
 # --- 7b. Weighted examples on the most recent year ---------------------------
@@ -527,7 +529,7 @@ wls_model <- lm(
   weights = example_weights
 )
 cat(paste0("\nWeighted OLS (", example_year, " sample):\n"))
-print(tidy(wls_model))
+print(broom::tidy(wls_model))
 
 wlogit_model <- glm(
   fair_or_poor ~ female + age + factor(race_eth) + factor(educ_cat),
@@ -536,7 +538,8 @@ wlogit_model <- glm(
   weights = example_glm_weights
 )
 cat(paste0("\nWeighted logit (", example_year, " sample):\n"))
-print(tidy(wlogit_model))
+print(broom::tidy(wlogit_model))
+}
 
 cat("\n============================================\n")
 cat("   DONE\n")

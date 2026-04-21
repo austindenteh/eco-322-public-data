@@ -3,8 +3,8 @@
 #
 # Purpose: Clean and create analysis-ready variables from the YRBS combined
 #          dataset. Covers demographics, mental health outcomes, substance
-#          use, and other health behaviors. Includes descriptive statistics
-#          and example regressions.
+#          use, and other health behaviors. Optional descriptive statistics
+#          and example regressions are included but not run by default.
 #
 # Input:   output/yrbs_combined.rds  (from 01_load_and_prepare.R)
 # Output:  output/yrbs_clean.rds
@@ -18,7 +18,6 @@
 
 library(haven)
 library(dplyr)
-library(broom)
 
 resolve_yrbs_root <- function(script_name) {
   env_root <- Sys.getenv("YRBS_ROOT", unset = "")
@@ -332,8 +331,11 @@ cat(paste0("Variables: ", ncol(yrbs), "\n"))
 # ============================================================================
 
 cat("\n============================================\n")
-cat("   DESCRIPTIVE STATISTICS\n")
+cat("   DESCRIPTIVE STATISTICS (optional; not run by default)\n")
 cat("============================================\n\n")
+
+# Uncomment this block if you want example descriptive statistics and regressions.
+if (FALSE) {
 
 # --- 9a. Sample sizes by year ---
 cat("--- Sample sizes by year ---\n")
@@ -470,7 +472,7 @@ run_example_lm <- function(data, outcome, label, use_weights = FALSE,
     model <- lm(formula, data = model_data)
   }
 
-  print(tidy(model) %>% head(10))
+  print(broom::tidy(model) %>% head(10))
   cat("  (showing first 10 coefficients)\n")
 }
 
@@ -506,6 +508,7 @@ run_example_lm(
   use_weights = TRUE,
   include_state_fe = TRUE
 )
+}
 
 cat("\n============================================\n")
 cat("   DONE\n")

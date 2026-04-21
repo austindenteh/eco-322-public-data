@@ -9,7 +9,7 @@
 # Input:   data/raw/*.dta              (pre-converted, if available)
 #      OR  data/raw/cps_00014.dat      (raw IPUMS ASCII + .xml metadata)
 # Output:  output/dec_cps_working.rds
-#          output/dec_cps_working.dta
+#          output/dec_cps_working_from_r.dta  (optional R export)
 #
 # Data:    Current Population Survey, Food Security Supplement (CPS-FSS).
 #          Conducted each December. Person-level records with household
@@ -18,8 +18,8 @@
 #
 #          Extracted from IPUMS CPS (https://cps.ipums.org).
 #
-# Usage:   Update the dec_cps_root path below, then source this file:
-#            source("code/01_load_and_subset.R")
+# Usage:   Run from dec_cps_food_insecurity_supplement/, from code/,
+#          from the repo root, or set DEC_CPS_ROOT.
 #
 # Required packages: haven, dplyr, ipumsr (for .dat loading)
 #   Install with: install.packages(c("haven", "dplyr", "ipumsr"))
@@ -31,16 +31,76 @@
 library(haven)
 library(dplyr)
 
+resolve_dec_cps_root <- function(script_name) {
+  env_root <- Sys.getenv("DEC_CPS_ROOT", unset = "")
+
+  parent_paths <- function(path) {
+    if (!nzchar(path) || !dir.exists(path)) {
+      return(character())
+    }
+
+    path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+    paths <- path
+
+    repeat {
+      parent <- dirname(path)
+      if (identical(parent, path)) {
+        break
+      }
+      paths <- c(paths, parent)
+      path <- parent
+    }
+
+    paths
+  }
+
+  rstudio_script_dir <- ""
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    rstudio_script <- tryCatch(
+      rstudioapi::getSourceEditorContext()$path,
+      error = function(e) ""
+    )
+    if (nzchar(rstudio_script)) {
+      rstudio_script_dir <- dirname(rstudio_script)
+    }
+  }
+
+  search_paths <- unique(unlist(lapply(c(getwd(), rstudio_script_dir), parent_paths), use.names = FALSE))
+  candidates <- c(env_root, search_paths, file.path(search_paths, "dec_cps_food_insecurity_supplement"))
+  candidates <- unique(candidates[nzchar(candidates)])
+
+  for (path in candidates) {
+    if (dir.exists(path) &&
+        file.exists(file.path(path, "README.md")) &&
+        file.exists(file.path(path, "code", script_name))) {
+      return(normalizePath(path, winslash = "/", mustWork = TRUE))
+    }
+  }
+
+  stop(
+    paste(
+      "Could not locate the dec_cps_food_insecurity_supplement/ directory.",
+      "Run this script from the dataset folder, from code/, from the repo root,",
+      "or set DEC_CPS_ROOT to the dataset path.",
+      paste0("Current working directory: ", getwd()),
+      'Manual override: Sys.setenv(DEC_CPS_ROOT = "/path/to/dec_cps_food_insecurity_supplement")'
+    )
+  )
+}
+
 # ============================================================================
 # 1. DEFINE PATHS
 # ============================================================================
-# Set the root directory for the dec_cps_food_insecurity_supplement/ folder.
-# Users should update this path to match their system.
+# Auto-detect the dataset root from the current working directory.
+#
+# Optional manual override if auto-detection fails:
+# Sys.setenv(DEC_CPS_ROOT = "/path/to/dec_cps_food_insecurity_supplement")
 
-dec_cps_root <- "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/dec_cps_food_insecurity_supplement"
+dec_cps_root <- resolve_dec_cps_root("01_load_and_subset.R")
+cat(paste0("Using December CPS root: ", dec_cps_root, "\n"))
 
 out_rds <- file.path(dec_cps_root, "output", "dec_cps_working.rds")
-out_dta <- file.path(dec_cps_root, "output", "dec_cps_working.dta")
+out_dta <- file.path(dec_cps_root, "output", "dec_cps_working_from_r.dta")
 
 # ============================================================================
 # 2. AUTO-DETECT AND LOAD DATA

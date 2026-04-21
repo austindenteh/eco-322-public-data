@@ -7,10 +7,10 @@
 #          (3) Employment and income
 #          (4) Health insurance (if available; 2008+ only)
 #          (5) Immigration and citizenship (if available)
-#          (6) Descriptive statistics and simple weighted regressions
+#          (6) Optional descriptive statistics and simple weighted regressions
 #
 # Input:   [acs_root]/output/acs_working.rds  (from 01_load_and_subset.R)
-# Output:  Descriptive statistics and regression output to console
+# Output:  Cleaned variables in memory; optional example output to console
 #
 # Usage:   Run from ipums_acs_1_year_sample/, ipums_acs_1_year_sample/code/,
 #          or the repo root:
@@ -496,8 +496,11 @@ if ("bpl" %in% names(acs)) {
 # ============================================================================
 
 cat("\n============================================\n")
-cat("   DESCRIPTIVE STATISTICS\n")
+cat("   DESCRIPTIVE STATISTICS (optional; not run by default)\n")
 cat("============================================\n")
+
+# Uncomment this block if you want example descriptive statistics and regressions.
+if (FALSE) {
 
 print_summary_if_present(acs, c("female", "age", "hisp", "white", "black", "asian"),
                          "Key demographic variables")
@@ -585,6 +588,7 @@ if (all(c("uninsured", "female", "age", "race_eth", "hs", "college", "year", "pe
   }
 } else {
   cat("\n[SKIP] Weighted regression: required variables not available.\n")
+}
 }
 
 cat("\n============================================\n")

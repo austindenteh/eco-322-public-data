@@ -3,8 +3,8 @@
 *
 * Purpose: Clean and create analysis-ready variables from the YRBS combined
 *          dataset. Covers demographics, mental health outcomes, substance
-*          use, and other health behaviors. Includes descriptive statistics
-*          and example regressions.
+*          use, and other health behaviors. Optional descriptive statistics
+*          and example regressions are included but not run by default.
 *
 * Input:   output/yrbs_combined.dta  (from 01_load_and_prepare.do)
 * Output:  output/yrbs_clean.dta
@@ -341,6 +341,9 @@ display as text "Variables: " c(k)
 * ============================================================================
 * 9. DESCRIPTIVE STATISTICS
 * ============================================================================
+* Optional teaching examples are kept here but not run by default.
+* Uncomment this block if you want descriptive tables and example regressions.
+/*
 
 display as text _newline "============================================"
 display as text "   DESCRIPTIVE STATISTICS"
@@ -452,6 +455,7 @@ if r(N) > 0 {
 else {
     display as text "[SKIP] No state-level observations are loaded for this example model."
 }
+*/
 
 display as text _newline "============================================"
 display as text "   DONE"

@@ -369,6 +369,9 @@ display as text "Variables: " c(k)
 * ============================================================================
 * 7. DESCRIPTIVE STATISTICS
 * ============================================================================
+* Optional teaching examples are kept here but not run by default.
+* Uncomment this block if you want descriptive tables and example regressions.
+/*
 
 display as text _newline "============================================"
 display as text "   DESCRIPTIVE STATISTICS"
@@ -426,6 +429,7 @@ regress mental_days female age i.race_eth i.educ_cat i.surveyyear [pweight = _ll
 * --- 8c. Weighted logit with pweights ----------------------------------------
 display as text _newline "--- Weighted logit: Fair/poor health [pweight] ---"
 logit fair_or_poor female age i.race_eth i.educ_cat i.surveyyear [pweight = _llcpwt]
+*/
 
 display as text _newline "============================================"
 display as text "   DONE"

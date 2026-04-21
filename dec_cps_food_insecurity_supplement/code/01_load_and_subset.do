@@ -6,7 +6,7 @@
 *          Auto-detects whether a pre-converted .dta file or raw .dat
 *          file is available in data/raw/.
 *
-* Input:   data/raw/*.dta              (pre-converted, if available)
+* Input:   data/raw/ plus a pre-converted .dta file (if available)
 *      OR  data/raw/cps_00014.dat      (raw IPUMS ASCII + .do loader)
 * Output:  output/dec_cps_working.dta
 *
@@ -17,9 +17,8 @@
 *
 *          Extracted from IPUMS CPS (https://cps.ipums.org).
 *
-* Usage:   Run from the dec_cps_food_insecurity_supplement/ directory:
-*            cd "/path/to/dec_cps_food_insecurity_supplement"
-*            do code/01_load_and_subset.do
+* Usage:   Run from dec_cps_food_insecurity_supplement/, from code/,
+*          from the repo root, or set global dec_cps_root first.
 *
 * Author:  Austin Denteh (legacy code and Claude Code)
 * Date:    March 2026
@@ -32,11 +31,32 @@ set maxvar 10000
 * ============================================================================
 * 1. DEFINE PATHS
 * ============================================================================
-* Set the working directory to the dec_cps_food_insecurity_supplement/ folder.
-* Users should update this path to match their system.
+* Auto-detect the dataset root from the current working directory.
+*
+* Optional manual override if auto-detection fails:
+* global dec_cps_root "/path/to/dec_cps_food_insecurity_supplement"
 
-global dec_cps_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/dec_cps_food_insecurity_supplement"
+local cwd `"`c(pwd)'"'
+if "$dec_cps_root" != "" & fileexists("$dec_cps_root/code/01_load_and_subset.do") {
+    global dec_cps_root "$dec_cps_root"
+}
+else if fileexists("code/01_load_and_subset.do") & fileexists("README.md") {
+    global dec_cps_root "`cwd'"
+}
+else if fileexists("01_load_and_subset.do") & fileexists("../README.md") {
+    global dec_cps_root "`cwd'/.."
+}
+else if fileexists("dec_cps_food_insecurity_supplement/code/01_load_and_subset.do") & fileexists("dec_cps_food_insecurity_supplement/README.md") {
+    global dec_cps_root "`cwd'/dec_cps_food_insecurity_supplement"
+}
+else {
+    display as error "Could not locate the dec_cps_food_insecurity_supplement/ directory."
+    display as error "Run from the dataset folder, from code/, from the repo root, or set global dec_cps_root first."
+    exit 198
+}
+
 cd "$dec_cps_root"
+display as text "Using December CPS root: $dec_cps_root"
 
 local out_dta "output/dec_cps_working.dta"
 

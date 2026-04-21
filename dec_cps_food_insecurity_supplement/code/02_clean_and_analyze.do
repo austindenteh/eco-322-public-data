@@ -4,22 +4,22 @@
     Author:   Austin Denteh
     Date:     March 2026
     Purpose:  Clean demographics, construct food security outcomes, SNAP and
-              other food assistance variables, produce descriptive statistics,
-              and run an example regression using the December CPS Food Security
-              Supplement.
+              other food assistance variables. Optional descriptive statistics
+              and example regression code are included but commented out by
+              default.
 
     Input:    ${dec_cps_root}/output/dec_cps_working.dta
     Output:   ${dec_cps_root}/output/dec_cps_clean.dta
 
     Notes:
-    - Assumes 01_load_and_append.do has already been run and produced
+    - Assumes 01_load_and_subset.do has already been run and produced
       dec_cps_working.dta.
     - All variable names follow IPUMS CPS conventions (lowercase).
     - Food security variables use the CPS Food Security Supplement coding:
         fsstatusd: 1=high, 2=marginal, 3=low, 4=very low, 98=no response, 99=NIU
         fsstatusa: same coding (adult scale)
         fsstatusc: 1=high/marginal, 2=low, 3=very low, 98=no response, 99=NIU
-    - SNAP (fsfdstmp): 0=NIU, 1=Yes, 2=No
+    - SNAP (fsfdstmp): 1=No, 2=Yes, 96/97/98/99=missing/NIU
     - Weight: fshwtscale (food security supplement household weight, scaled)
     - Household-level analyses should be restricted to one record per household
       (e.g., the household respondent via hhrespln == lineno).
@@ -32,8 +32,29 @@ set more off
 * SECTION 1: Setup and Load Data
 * ---------------------------------------------------------------------------- *
 
-* --- Set root path (edit this to match your system) ---
-global dec_cps_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/dec_cps_food_insecurity_supplement"
+* --- Auto-detect dataset root ---
+* Optional manual override if auto-detection fails:
+* global dec_cps_root "/path/to/dec_cps_food_insecurity_supplement"
+
+local cwd `"`c(pwd)'"'
+if "$dec_cps_root" != "" & fileexists("$dec_cps_root/code/02_clean_and_analyze.do") {
+    global dec_cps_root "$dec_cps_root"
+}
+else if fileexists("code/02_clean_and_analyze.do") & fileexists("README.md") {
+    global dec_cps_root "`cwd'"
+}
+else if fileexists("02_clean_and_analyze.do") & fileexists("../README.md") {
+    global dec_cps_root "`cwd'/.."
+}
+else if fileexists("dec_cps_food_insecurity_supplement/code/02_clean_and_analyze.do") & fileexists("dec_cps_food_insecurity_supplement/README.md") {
+    global dec_cps_root "`cwd'/dec_cps_food_insecurity_supplement"
+}
+else {
+    display as error "Could not locate the dec_cps_food_insecurity_supplement/ directory."
+    display as error "Run from the dataset folder, from code/, from the repo root, or set global dec_cps_root first."
+    exit 198
+}
+display as text "Using December CPS root: $dec_cps_root"
 
 * --- Load working dataset ---
 use "${dec_cps_root}/output/dec_cps_working.dta", clear
@@ -395,10 +416,10 @@ display " SECTION 8: SNAP Participation"
 display "============================================================"
 
 * --- SNAP receipt (fsfdstmp) ---
-*     IPUMS CPS coding: 0=NIU, 1=Yes, 2=No
+*     IPUMS CPS coding: 1=No, 2=Yes, 96/97/98/99=missing/NIU
 capture confirm variable fsfdstmp
 if _rc == 0 {
-    gen snap_participant = (fsfdstmp == 1) if fsfdstmp > 0 & fsfdstmp < 98
+    gen snap_participant = (fsfdstmp == 2) if !inlist(fsfdstmp, 96, 97, 98, 99, .)
     label var snap_participant "Received SNAP/food stamps (1=yes)"
 
     display _newline
@@ -419,10 +440,10 @@ if _rc == 0 {
     display _newline
     display "--- Monthly SNAP variables detected (fsstmpjan-fsstmpdec) ---"
     display "  These indicate SNAP receipt in each month of the prior year."
-    display "  Coding: 0=NIU, 1=Yes, 2=No"
+    display "  Coding: 1=No, 2=Yes, 96/97/98/99=missing/NIU"
 
     foreach m in jan feb mar apr may jun jul aug sep oct nov dec {
-        capture gen snap_`m' = (fsstmp`m' == 1) if fsstmp`m' > 0 & fsstmp`m' < 98
+        capture gen snap_`m' = (fsstmp`m' == 2) if !inlist(fsstmp`m', 96, 97, 98, 99, .)
         capture label var snap_`m' "SNAP receipt in `m' (1=yes)"
     }
 
@@ -443,10 +464,10 @@ display " SECTION 9: Other Food Assistance Programs"
 display "============================================================"
 
 * --- School lunch (free/reduced) ---
-*     fslnchfrc: 0=NIU, 1=Yes, 2=No
+*     fslnchfrc: 1=No, 2=Yes, 96/97/98/99=missing/NIU
 capture confirm variable fslnchfrc
 if _rc == 0 {
-    gen school_lunch = (fslnchfrc == 1) if fslnchfrc > 0 & fslnchfrc < 98
+    gen school_lunch = (fslnchfrc == 2) if !inlist(fslnchfrc, 96, 97, 98, 99, .)
     label var school_lunch "Received free/reduced school lunch (1=yes)"
     tab school_lunch, missing
 }
@@ -455,10 +476,10 @@ else {
 }
 
 * --- WIC ---
-*     fswic: 0=NIU, 1=Yes, 2=No
+*     fswic: 0=None, 1-4=count, 9=at least one, 96/97/98/99=missing/NIU
 capture confirm variable fswic
 if _rc == 0 {
-    gen wic = (fswic == 1) if fswic > 0 & fswic < 98
+    gen wic = inlist(fswic, 1, 2, 3, 4, 9) if !inlist(fswic, 96, 97, 98, 99, .)
     label var wic "Received WIC (1=yes)"
     tab wic, missing
 }
@@ -467,10 +488,10 @@ else {
 }
 
 * --- Food bank ---
-*     fsfdbnk: 0=NIU, 1=Yes, 2=No
+*     fsfdbnk: 1=not at all, 2-5=used, 96/97/98/99=missing/NIU
 capture confirm variable fsfdbnk
 if _rc == 0 {
-    gen food_bank = (fsfdbnk == 1) if fsfdbnk > 0 & fsfdbnk < 98
+    gen food_bank = inlist(fsfdbnk, 2, 3, 4, 5) if !inlist(fsfdbnk, 96, 97, 98, 99, .)
     label var food_bank "Used food bank/pantry (1=yes)"
     tab food_bank, missing
 }
@@ -479,10 +500,10 @@ else {
 }
 
 * --- Soup kitchen ---
-*     fssoupk: 0=NIU, 1=Yes, 2=No
+*     fssoupk: 1=not at all, 2-5=used, 96/97/98/99=missing/NIU
 capture confirm variable fssoupk
 if _rc == 0 {
-    gen soup_kitchen = (fssoupk == 1) if fssoupk > 0 & fssoupk < 98
+    gen soup_kitchen = inlist(fssoupk, 2, 3, 4, 5) if !inlist(fssoupk, 96, 97, 98, 99, .)
     label var soup_kitchen "Used soup kitchen (1=yes)"
     tab soup_kitchen, missing
 }
@@ -495,6 +516,9 @@ else {
 * SECTION 10: Descriptive Statistics
 * ---------------------------------------------------------------------------- *
 
+* Optional teaching examples are kept in the script but not run by default.
+* Uncomment this block if you want example descriptive statistics.
+/*
 display _newline(2)
 display "============================================================"
 display " SECTION 10: Descriptive Statistics"
@@ -551,12 +575,15 @@ capture confirm variable snap_participant
 if _rc == 0 {
     table race_eth, stat(mean snap_participant) stat(count snap_participant) nformat(%9.3f)
 }
+*/
 
 
 * ---------------------------------------------------------------------------- *
 * SECTION 11: Example Regression
 * ---------------------------------------------------------------------------- *
 
+* Optional teaching example. Uncomment this block if you want to run it.
+/*
 display _newline(2)
 display "============================================================"
 display " SECTION 11: Example Regression"
@@ -613,6 +640,7 @@ else {
 
     reg food_insecure `rhs' i.year `wt', robust
 }
+*/
 
 
 * ---------------------------------------------------------------------------- *
@@ -655,9 +683,12 @@ display "============================================================"
     - Adult scale: 10 items (0-1 = high, 2 = marginal, 3-5 = low, 6-10 = very low)
     - Child scale: 8 items (0-1 = high/marginal, 2-4 = low, 5-8 = very low)
 
-    SNAP CODING:
-    - fsfdstmp: 0=NIU, 1=Yes received SNAP, 2=No.
-    - Monthly indicators (fsstmpjan-fsstmpdec): same coding, by calendar month.
+    FOOD ASSISTANCE CODING:
+    - fsfdstmp: 1=No, 2=Yes received SNAP, 96/97/98/99=missing/NIU.
+    - Monthly SNAP indicators (fsstmpjan-fsstmpdec): same coding, by calendar month.
+    - fslnchfrc: 1=No, 2=Yes free/reduced school lunch.
+    - fswic: 0=None, 1-4=count, 9=at least one.
+    - fsfdbnk/fssoupk: 1=not at all, 2-5=some use.
     - SNAP amounts: fsstmpamo (monthly amount, available in some years).
 
     HOUSEHOLD vs. PERSON LEVEL:

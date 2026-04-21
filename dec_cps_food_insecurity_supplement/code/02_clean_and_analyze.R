@@ -22,13 +22,73 @@
 library(haven)
 library(dplyr)
 
+resolve_dec_cps_root <- function(script_name) {
+  env_root <- Sys.getenv("DEC_CPS_ROOT", unset = "")
+
+  parent_paths <- function(path) {
+    if (!nzchar(path) || !dir.exists(path)) {
+      return(character())
+    }
+
+    path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+    paths <- path
+
+    repeat {
+      parent <- dirname(path)
+      if (identical(parent, path)) {
+        break
+      }
+      paths <- c(paths, parent)
+      path <- parent
+    }
+
+    paths
+  }
+
+  rstudio_script_dir <- ""
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    rstudio_script <- tryCatch(
+      rstudioapi::getSourceEditorContext()$path,
+      error = function(e) ""
+    )
+    if (nzchar(rstudio_script)) {
+      rstudio_script_dir <- dirname(rstudio_script)
+    }
+  }
+
+  search_paths <- unique(unlist(lapply(c(getwd(), rstudio_script_dir), parent_paths), use.names = FALSE))
+  candidates <- c(env_root, search_paths, file.path(search_paths, "dec_cps_food_insecurity_supplement"))
+  candidates <- unique(candidates[nzchar(candidates)])
+
+  for (path in candidates) {
+    if (dir.exists(path) &&
+        file.exists(file.path(path, "README.md")) &&
+        file.exists(file.path(path, "code", script_name))) {
+      return(normalizePath(path, winslash = "/", mustWork = TRUE))
+    }
+  }
+
+  stop(
+    paste(
+      "Could not locate the dec_cps_food_insecurity_supplement/ directory.",
+      "Run this script from the dataset folder, from code/, from the repo root,",
+      "or set DEC_CPS_ROOT to the dataset path.",
+      paste0("Current working directory: ", getwd()),
+      'Manual override: Sys.setenv(DEC_CPS_ROOT = "/path/to/dec_cps_food_insecurity_supplement")'
+    )
+  )
+}
+
 cat("\n")
 cat("=================================================================\n")
 cat("  December CPS Food Security Supplement — Clean & Analyze\n")
 cat("=================================================================\n\n")
 
 # --- Paths ---
-dec_cps_root <- "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/dec_cps_food_insecurity_supplement"
+# Optional manual override if auto-detection fails:
+# Sys.setenv(DEC_CPS_ROOT = "/path/to/dec_cps_food_insecurity_supplement")
+dec_cps_root <- resolve_dec_cps_root("02_clean_and_analyze.R")
+cat(paste0("Using December CPS root: ", dec_cps_root, "\n"))
 
 input_file  <- file.path(dec_cps_root, "output", "dec_cps_working.rds")
 output_file <- file.path(dec_cps_root, "output", "dec_cps_clean.rds")
@@ -381,7 +441,8 @@ cat("-----------------------------------------------------------------\n\n")
 if ("fsfdstmp" %in% names(cps)) {
   cps <- cps %>%
     mutate(
-      snap_participant = ifelse(is.na(fsfdstmp) | fsfdstmp %in% c(0, 98, 99), NA, as.integer(fsfdstmp == 1))
+      # IPUMS CPS FSFDSTMP: 1 = No, 2 = Yes, 96/97/98/99 = missing/NIU.
+      snap_participant = ifelse(is.na(fsfdstmp) | fsfdstmp %in% c(96, 97, 98, 99), NA, as.integer(fsfdstmp == 2))
     )
 
   cat(sprintf("  SNAP participants: %s (%.1f%% of valid responses)\n",
@@ -420,15 +481,25 @@ cat("-----------------------------------------------------------------\n")
 cat("  Section 9: Other Food Assistance Programs\n")
 cat("-----------------------------------------------------------------\n\n")
 
-# Helper: create binary indicator from FSS yes/no variable
-# Coding: 0 = NIU, 1 = Yes, 2 = No → binary (== 1), NA if 0/98/99
-make_fss_binary <- function(x) {
-  ifelse(is.na(x) | x %in% c(0, 98, 99), NA, as.integer(x == 1))
+# Helpers for IPUMS CPS FSS variables.
+make_yes_no_2_binary <- function(x) {
+  # 1 = No, 2 = Yes, 96/97/98/99 = missing/NIU.
+  ifelse(is.na(x) | x %in% c(96, 97, 98, 99), NA, as.integer(x == 2))
+}
+
+make_count_positive_binary <- function(x) {
+  # 0 = none, 1-4 = count, 9 = at least one, 96/97/98/99 = missing/NIU.
+  ifelse(is.na(x) | x %in% c(96, 97, 98, 99), NA, as.integer(x %in% c(1, 2, 3, 4, 9)))
+}
+
+make_frequency_positive_binary <- function(x) {
+  # 1 = not at all, 2-5 = at least once / frequency, 96/97/98/99 = missing/NIU.
+  ifelse(is.na(x) | x %in% c(96, 97, 98, 99), NA, as.integer(x %in% c(2, 3, 4, 5)))
 }
 
 # School lunch (free/reduced price)
 if ("fslnchfrc" %in% names(cps)) {
-  cps$school_lunch <- make_fss_binary(cps$fslnchfrc)
+  cps$school_lunch <- make_yes_no_2_binary(cps$fslnchfrc)
   cat(sprintf("  School lunch (free/reduced): %.1f%% of valid\n",
               100 * mean(cps$school_lunch, na.rm = TRUE)))
 } else {
@@ -438,7 +509,7 @@ if ("fslnchfrc" %in% names(cps)) {
 
 # WIC
 if ("fswic" %in% names(cps)) {
-  cps$wic <- make_fss_binary(cps$fswic)
+  cps$wic <- make_count_positive_binary(cps$fswic)
   cat(sprintf("  WIC participation:           %.1f%% of valid\n",
               100 * mean(cps$wic, na.rm = TRUE)))
 } else {
@@ -448,7 +519,7 @@ if ("fswic" %in% names(cps)) {
 
 # Food bank
 if ("fsfdbnk" %in% names(cps)) {
-  cps$food_bank <- make_fss_binary(cps$fsfdbnk)
+  cps$food_bank <- make_frequency_positive_binary(cps$fsfdbnk)
   cat(sprintf("  Food bank use:               %.1f%% of valid\n",
               100 * mean(cps$food_bank, na.rm = TRUE)))
 } else {
@@ -458,7 +529,7 @@ if ("fsfdbnk" %in% names(cps)) {
 
 # Soup kitchen
 if ("fssoupk" %in% names(cps)) {
-  cps$soup_kitchen <- make_fss_binary(cps$fssoupk)
+  cps$soup_kitchen <- make_frequency_positive_binary(cps$fssoupk)
   cat(sprintf("  Soup kitchen use:            %.1f%% of valid\n",
               100 * mean(cps$soup_kitchen, na.rm = TRUE)))
 } else {
@@ -473,65 +544,68 @@ cat("\n")
 # -----------------------------------------------------------------------------
 
 cat("-----------------------------------------------------------------\n")
-cat("  Section 10: Descriptive Statistics\n")
+cat("  Section 10: Descriptive Statistics (optional; not run by default)\n")
 cat("-----------------------------------------------------------------\n\n")
 
-# --- Demographics summary ---
-cat("Demographic summary (full sample):\n")
-cat(sprintf("  N:             %s\n", format(nrow(cps), big.mark = ",")))
-cat(sprintf("  Female:        %.1f%%\n", 100 * mean(cps$female, na.rm = TRUE)))
-cat(sprintf("  Mean age:      %.1f\n", mean(cps$age, na.rm = TRUE)))
-cat(sprintf("  Married:       %.1f%%\n", 100 * mean(cps$married, na.rm = TRUE)))
-cat(sprintf("  Employed:      %.1f%%\n", 100 * mean(cps$employed, na.rm = TRUE)))
-cat("\n")
+# Uncomment this block if you want example descriptive statistics.
+if (FALSE) {
+  # --- Demographics summary ---
+  cat("Demographic summary (full sample):\n")
+  cat(sprintf("  N:             %s\n", format(nrow(cps), big.mark = ",")))
+  cat(sprintf("  Female:        %.1f%%\n", 100 * mean(cps$female, na.rm = TRUE)))
+  cat(sprintf("  Mean age:      %.1f\n", mean(cps$age, na.rm = TRUE)))
+  cat(sprintf("  Married:       %.1f%%\n", 100 * mean(cps$married, na.rm = TRUE)))
+  cat(sprintf("  Employed:      %.1f%%\n", 100 * mean(cps$employed, na.rm = TRUE)))
+  cat("\n")
 
-# --- Food security by year ---
-cat("Food security rates by year (household):\n")
-if ("food_insecure" %in% names(cps)) {
-  fs_year_tab <- cps %>%
-    filter(!is.na(food_insecure)) %>%
-    group_by(year) %>%
-    summarise(
-      n       = n(),
-      fi_pct  = 100 * mean(food_insecure, na.rm = TRUE),
-      low_pct = 100 * mean(fs_low, na.rm = TRUE),
-      vlow_pct = 100 * mean(fs_verylow, na.rm = TRUE),
-      .groups = "drop"
-    )
-  print(as.data.frame(fs_year_tab), row.names = FALSE)
-}
-cat("\n")
+  # --- Food security by year ---
+  cat("Food security rates by year (household):\n")
+  if ("food_insecure" %in% names(cps)) {
+    fs_year_tab <- cps %>%
+      filter(!is.na(food_insecure)) %>%
+      group_by(year) %>%
+      summarise(
+        n       = n(),
+        fi_pct  = 100 * mean(food_insecure, na.rm = TRUE),
+        low_pct = 100 * mean(fs_low, na.rm = TRUE),
+        vlow_pct = 100 * mean(fs_verylow, na.rm = TRUE),
+        .groups = "drop"
+      )
+    print(as.data.frame(fs_year_tab), row.names = FALSE)
+  }
+  cat("\n")
 
-# --- SNAP by year ---
-cat("SNAP participation by year:\n")
-if ("snap_participant" %in% names(cps)) {
-  snap_year_tab <- cps %>%
-    filter(!is.na(snap_participant)) %>%
-    group_by(year) %>%
-    summarise(
-      n         = n(),
-      snap_pct  = 100 * mean(snap_participant, na.rm = TRUE),
-      .groups   = "drop"
-    )
-  print(as.data.frame(snap_year_tab), row.names = FALSE)
-}
-cat("\n")
+  # --- SNAP by year ---
+  cat("SNAP participation by year:\n")
+  if ("snap_participant" %in% names(cps)) {
+    snap_year_tab <- cps %>%
+      filter(!is.na(snap_participant)) %>%
+      group_by(year) %>%
+      summarise(
+        n         = n(),
+        snap_pct  = 100 * mean(snap_participant, na.rm = TRUE),
+        .groups   = "drop"
+      )
+    print(as.data.frame(snap_year_tab), row.names = FALSE)
+  }
+  cat("\n")
 
-# --- Food security by race/ethnicity ---
-cat("Food insecurity rate by race/ethnicity:\n")
-if ("food_insecure" %in% names(cps)) {
-  fs_race_tab <- cps %>%
-    filter(!is.na(food_insecure)) %>%
-    group_by(race_eth) %>%
-    summarise(
-      n       = n(),
-      fi_pct  = 100 * mean(food_insecure, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    arrange(desc(fi_pct))
-  print(as.data.frame(fs_race_tab), row.names = FALSE)
+  # --- Food security by race/ethnicity ---
+  cat("Food insecurity rate by race/ethnicity:\n")
+  if ("food_insecure" %in% names(cps)) {
+    fs_race_tab <- cps %>%
+      filter(!is.na(food_insecure)) %>%
+      group_by(race_eth) %>%
+      summarise(
+        n       = n(),
+        fi_pct  = 100 * mean(food_insecure, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      arrange(desc(fi_pct))
+    print(as.data.frame(fs_race_tab), row.names = FALSE)
+  }
+  cat("\n")
 }
-cat("\n")
 
 
 # -----------------------------------------------------------------------------
@@ -539,34 +613,37 @@ cat("\n")
 # -----------------------------------------------------------------------------
 
 cat("-----------------------------------------------------------------\n")
-cat("  Section 11: Example Regression\n")
+cat("  Section 11: Example Regression (optional; not run by default)\n")
 cat("-----------------------------------------------------------------\n\n")
 
-cat("Running OLS regression: food_insecure ~ demographics + SNAP + year FE\n")
-cat("  (using FSS supplement weight: fshwtscale)\n\n")
+# Uncomment this block if you want to run the example regression.
+if (FALSE) {
+  cat("Running OLS regression: food_insecure ~ demographics + SNAP + year FE\n")
+  cat("  (using FSS supplement weight: fshwtscale)\n\n")
 
-# Restrict to non-missing outcome
-reg_data <- cps %>%
-  filter(!is.na(food_insecure),
-         !is.na(fshwtscale),
-         fshwtscale > 0)
+  # Restrict to non-missing outcome
+  reg_data <- cps %>%
+    filter(!is.na(food_insecure),
+           !is.na(fshwtscale),
+           fshwtscale > 0)
 
-if (nrow(reg_data) > 0) {
-  fit <- lm(food_insecure ~ female + age + factor(race_eth) + educ_hs +
-              educ_bach + married + snap_participant + factor(year),
-            data = reg_data,
-            weights = fshwtscale)
+  if (nrow(reg_data) > 0) {
+    fit <- lm(food_insecure ~ female + age + factor(race_eth) + educ_hs +
+                educ_bach + married + snap_participant + factor(year),
+              data = reg_data,
+              weights = fshwtscale)
 
-  cat("Regression results (linear probability model):\n\n")
-  print(summary(fit))
+    cat("Regression results (linear probability model):\n\n")
+    print(summary(fit))
+    cat("\n")
+  }
+
+  cat("NOTE: These standard errors are NOT survey-corrected. For proper\n")
+  cat("  inference with the CPS complex survey design, use the survey\n")
+  cat("  package with svydesign() and svyglm(). The FSS supplement weight\n")
+  cat("  is fshwtscale (or fssuppwth for household-level analyses).\n")
   cat("\n")
 }
-
-cat("NOTE: These standard errors are NOT survey-corrected. For proper\n")
-cat("  inference with the CPS complex survey design, use the survey\n")
-cat("  package with svydesign() and svyglm(). The FSS supplement weight\n")
-cat("  is fshwtscale (or fssuppwth for household-level analyses).\n")
-cat("\n")
 
 
 # -----------------------------------------------------------------------------
@@ -601,9 +678,16 @@ cat("\n")
 # FOOD SECURITY CODING:
 #   - fsstatusd (household detailed): 1=high, 2=marginal, 3=low, 4=very low
 #   - fsstatusa (adult): same coding as household
-#   - fsstatusc (child): same coding; only defined for HH with children
+#   - fsstatusc (child): 1=high/marginal, 2=low, 3=very low
 #   - "Food insecure" = low or very low food security (categories 3-4)
 #   - 98 = no response, 99 = NIU (not in universe) → set to NA
+#
+# FOOD ASSISTANCE CODING:
+#   - fsfdstmp: 1=No, 2=Yes received SNAP, 96/97/98/99=missing/NIU
+#   - Monthly SNAP indicators (fsstmpjan-fsstmpdec): same coding
+#   - fslnchfrc: 1=No, 2=Yes free/reduced school lunch
+#   - fswic: 0=None, 1-4=count, 9=at least one
+#   - fsfdbnk/fssoupk: 1=not at all, 2-5=some use
 #
 # HOUSEHOLD vs PERSON:
 #   - Food security status is measured at the HOUSEHOLD level but appears

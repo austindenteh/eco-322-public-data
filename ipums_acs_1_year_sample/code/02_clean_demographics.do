@@ -7,10 +7,10 @@
 *          (3) Employment and income
 *          (4) Health insurance (if available; 2008+ only)
 *          (5) Immigration and citizenship (if available)
-*          (6) Descriptive statistics and simple weighted regressions
+*          (6) Optional descriptive statistics and simple weighted regressions
 *
 * Input:   output/acs_working.dta  (from 01_load_and_subset.do)
-* Output:  Descriptive statistics and regression output to console
+* Output:  Cleaned variables in memory; optional example output to console
 *
 * Usage:   Run from ipums_acs_1_year_sample/, ipums_acs_1_year_sample/code/,
 *          or the repo root:
@@ -357,6 +357,9 @@ if _rc == 0 {
 * ============================================================================
 * 9. DESCRIPTIVE STATISTICS
 * ============================================================================
+* Optional teaching examples are kept here but not run by default.
+* Uncomment this block if you want descriptive tables and example regressions.
+/*
 
 display as text _newline "============================================"
 display as text "   DESCRIPTIVE STATISTICS"
@@ -457,13 +460,14 @@ else {
         capture noisily reg wage female age i.race_eth hs college ///
             i.year [pw=perwt] if wage > 0, robust
     }
-    else {
-        display as text _newline "[SKIP] Weighted regression: required variables not available."
-    }
-}
-
-display as text _newline "============================================"
-display as text "   CLEANING COMPLETE"
+	    else {
+	        display as text _newline "[SKIP] Weighted regression: required variables not available."
+	    }
+	}
+*/
+	
+	display as text _newline "============================================"
+	display as text "   CLEANING COMPLETE"
 display as text "============================================"
 display as text "Variables created when source data are available: race_eth, female,"
 display as text "  yrsed, hs, college, employed, in_lf, wage, inpov, and more."
