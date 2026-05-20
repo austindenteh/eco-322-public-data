@@ -19,7 +19,7 @@
 #          Extracted from IPUMS CPS (https://cps.ipums.org).
 #
 # Usage:   Run from dec_cps_food_insecurity_supplement/, from code/,
-#          from the repo root, or set DEC_CPS_ROOT.
+#          from the repo root, or set dec_cps_root_manual / DEC_CPS_ROOT.
 #
 # Required packages: haven, dplyr, ipumsr (for .dat loading)
 #   Install with: install.packages(c("haven", "dplyr", "ipumsr"))
@@ -31,28 +31,49 @@
 library(haven)
 library(dplyr)
 
+# Optional manual path override. Leave as NULL for auto-detection.
+# Example:
+# dec_cps_root_manual <- "/Users/yourname/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement"
+if (!exists("dec_cps_root_manual", inherits = TRUE)) {
+  dec_cps_root_manual <- NULL
+}
+
+get_current_script_dir <- function() {
+  command_args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- grep("^--file=", command_args, value = TRUE)
+  if (length(file_arg) > 0) {
+    script_path <- sub("^--file=", "", file_arg[[1]])
+    return(dirname(normalizePath(script_path, winslash = "/", mustWork = FALSE)))
+  }
+
+  frame_paths <- vapply(sys.frames(), function(frame) {
+    if (!is.null(frame$ofile)) frame$ofile else ""
+  }, character(1))
+  frame_paths <- frame_paths[nzchar(frame_paths)]
+  if (length(frame_paths) > 0) {
+    return(dirname(normalizePath(tail(frame_paths, 1), winslash = "/", mustWork = FALSE)))
+  }
+
+  ""
+}
+
+parent_paths <- function(path) {
+  if (!nzchar(path) || !dir.exists(path)) return(character())
+  path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+  paths <- path
+
+  repeat {
+    parent <- dirname(path)
+    if (identical(parent, path)) break
+    paths <- c(paths, parent)
+    path <- parent
+  }
+
+  paths
+}
+
 resolve_dec_cps_root <- function(script_name) {
   env_root <- Sys.getenv("DEC_CPS_ROOT", unset = "")
-
-  parent_paths <- function(path) {
-    if (!nzchar(path) || !dir.exists(path)) {
-      return(character())
-    }
-
-    path <- normalizePath(path, winslash = "/", mustWork = TRUE)
-    paths <- path
-
-    repeat {
-      parent <- dirname(path)
-      if (identical(parent, path)) {
-        break
-      }
-      paths <- c(paths, parent)
-      path <- parent
-    }
-
-    paths
-  }
 
   rstudio_script_dir <- ""
   if (requireNamespace("rstudioapi", quietly = TRUE)) {
@@ -65,36 +86,40 @@ resolve_dec_cps_root <- function(script_name) {
     }
   }
 
-  search_paths <- unique(unlist(lapply(c(getwd(), rstudio_script_dir), parent_paths), use.names = FALSE))
-  candidates <- c(env_root, search_paths, file.path(search_paths, "dec_cps_food_insecurity_supplement"))
-  candidates <- unique(candidates[nzchar(candidates)])
+  search_roots <- c(getwd(), get_current_script_dir(), rstudio_script_dir)
+  search_paths <- unique(unlist(lapply(search_roots, parent_paths), use.names = FALSE))
+  candidates <- c(
+    dec_cps_root_manual,
+    env_root,
+    search_paths,
+    file.path(search_paths, "dec_cps_food_insecurity_supplement")
+  )
+  candidates <- unique(candidates[!is.na(candidates) & nzchar(candidates)])
 
   for (path in candidates) {
-    if (dir.exists(path) &&
-        file.exists(file.path(path, "README.md")) &&
-        file.exists(file.path(path, "code", script_name))) {
-      return(normalizePath(path, winslash = "/", mustWork = TRUE))
+    path_norm <- normalizePath(path, winslash = "/", mustWork = FALSE)
+    if (file.exists(file.path(path_norm, "README.md")) &&
+        file.exists(file.path(path_norm, "code", script_name))) {
+      return(path_norm)
     }
   }
 
   stop(
-    paste(
-      "Could not locate the dec_cps_food_insecurity_supplement/ directory.",
-      "Run this script from the dataset folder, from code/, from the repo root,",
-      "or set DEC_CPS_ROOT to the dataset path.",
-      paste0("Current working directory: ", getwd()),
-      'Manual override: Sys.setenv(DEC_CPS_ROOT = "/path/to/dec_cps_food_insecurity_supplement")'
-    )
+    "Could not locate the dec_cps_food_insecurity_supplement/ directory.\n",
+    "Run this script from the dataset folder, from code/, from the repo root, ",
+    "or set dec_cps_root_manual / DEC_CPS_ROOT to the dataset path.\n",
+    paste0("Current working directory: ", getwd(), "\n"),
+    'Manual override in this script: dec_cps_root_manual <- "/path/to/dec_cps_food_insecurity_supplement"\n',
+    'Manual override before sourcing: Sys.setenv(DEC_CPS_ROOT = "/path/to/dec_cps_food_insecurity_supplement")',
+    call. = FALSE
   )
 }
 
 # ============================================================================
 # 1. DEFINE PATHS
 # ============================================================================
-# Auto-detect the dataset root from the current working directory.
-#
-# Optional manual override if auto-detection fails:
-# Sys.setenv(DEC_CPS_ROOT = "/path/to/dec_cps_food_insecurity_supplement")
+# Auto-detect the dataset root from the current working directory, script path,
+# RStudio source path, or a manual override.
 
 dec_cps_root <- resolve_dec_cps_root("01_load_and_subset.R")
 cat(paste0("Using December CPS root: ", dec_cps_root, "\n"))

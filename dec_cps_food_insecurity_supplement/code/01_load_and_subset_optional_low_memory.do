@@ -30,8 +30,9 @@ set maxvar 10000
 * ============================================================================
 * Auto-detect the dataset root from the current working directory.
 *
-* Optional manual override if auto-detection fails:
-* global dec_cps_root "/path/to/dec_cps_food_insecurity_supplement"
+* Optional manual path override. Uncomment and edit if auto-detection fails:
+* global dec_cps_root "/Users/yourname/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement"
+* Then run: do "$dec_cps_root/code/01_load_and_subset_optional_low_memory.do"
 
 local cwd `"`c(pwd)'"'
 if "$dec_cps_root" != "" & fileexists("$dec_cps_root/code/01_load_and_subset_optional_low_memory.do") {
@@ -51,6 +52,7 @@ else {
     display as error "Could not locate the dec_cps_food_insecurity_supplement/ directory."
     display as error "Run from the dataset folder, from code/, from the repo root,"
     display as error "or set global dec_cps_root first."
+    display as error `"Manual override: global dec_cps_root "/path/to/dec_cps_food_insecurity_supplement""'
     exit 198
 }
 
@@ -88,8 +90,8 @@ local years_to_keep ""
 local states_to_keep ""
 
 * Add stable raw variable names here if you want extra columns carried forward.
-* Example:
-* local extra_keep_vars "fsstmpval fstotxpn"
+* Example variables available in this Dec CPS extract:
+* local extra_keep_vars "fsstmpvalc fstotxpnc"
 local extra_keep_vars ""
 
 * Add cross-year raw variable families here when names differ by year.
@@ -98,9 +100,9 @@ local extra_keep_vars ""
 * meaning of your added variable changes across years, you must harmonize that
 * variable later in 02_clean_and_analyze.do or in your analysis code.
 *
-* Example:
+* Example template after you verify the raw aliases have comparable coding:
 * local extra_var_families ///
-*     `" "dental_visit:dentvist dentvisit" "'
+*     `" "merged_name:old_raw_name new_raw_name" "'
 local extra_var_families
 
 * ============================================================================

@@ -33,8 +33,9 @@ set more off
 * ---------------------------------------------------------------------------- *
 
 * --- Auto-detect dataset root ---
-* Optional manual override if auto-detection fails:
-* global dec_cps_root "/path/to/dec_cps_food_insecurity_supplement"
+* Optional manual path override. Uncomment and edit if auto-detection fails:
+* global dec_cps_root "/Users/yourname/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement"
+* Then run: do "$dec_cps_root/code/02_clean_and_analyze.do"
 
 local cwd `"`c(pwd)'"'
 if "$dec_cps_root" != "" & fileexists("$dec_cps_root/code/02_clean_and_analyze.do") {
@@ -52,6 +53,7 @@ else if fileexists("dec_cps_food_insecurity_supplement/code/02_clean_and_analyze
 else {
     display as error "Could not locate the dec_cps_food_insecurity_supplement/ directory."
     display as error "Run from the dataset folder, from code/, from the repo root, or set global dec_cps_root first."
+    display as error `"Manual override: global dec_cps_root "/path/to/dec_cps_food_insecurity_supplement""'
     exit 198
 }
 display as text "Using December CPS root: $dec_cps_root"

@@ -39,6 +39,8 @@ dec_cps_food_insecurity_supplement/
 ├── code/
 │   ├── 01_load_and_subset.do         ← Load data, validate, save working copy (Stata)
 │   ├── 01_load_and_subset.R          ← Same in R
+│   ├── 01_load_and_subset_optional_low_memory.do  ← Optional selected-column loader
+│   ├── 01_load_and_subset_optional_low_memory.R   ← Same in R
 │   ├── 02_clean_and_analyze.do       ← Clean variables, food security outcomes (Stata)
 │   └── 02_clean_and_analyze.R        ← Same in R
 ├── data/
@@ -83,6 +85,43 @@ source("code/01_load_and_subset.R")
 
 This loads the IPUMS extract (auto-detecting `.dta` or `.dat` format), verifies all records are December, creates unique identifiers, validates key variables, and saves a working copy to `output/`.
 
+If path auto-detection fails, set the December CPS folder manually before running the scripts:
+
+**Stata:**
+```stata
+global dec_cps_root "/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement"
+do "$dec_cps_root/code/01_load_and_subset.do"
+```
+
+**R:**
+```r
+dec_cps_root_manual <- "/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement"
+source(file.path(dec_cps_root_manual, "code", "01_load_and_subset.R"))
+```
+
+You can also set the R override before sourcing:
+
+```r
+Sys.setenv(DEC_CPS_ROOT = "/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement")
+source("/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement/code/01_load_and_subset.R")
+```
+
+The standard loaders keep all columns from the IPUMS extract. If you only need the starter variables, use the optional low-memory loader instead:
+
+**Stata:**
+```stata
+do code/01_load_and_subset_optional_low_memory.do
+```
+
+**R:**
+```r
+source("code/01_load_and_subset_optional_low_memory.R")
+```
+
+The optional loaders read only the columns needed by `02_clean_and_analyze.*`, plus any user-requested extra columns, and then save the usual `output/dec_cps_working.*` file. The current December CPS extract is a single focused 2.3 GB IPUMS file, so yearly files are not required for the low-memory workflow.
+
+Add stable IPUMS variable names to `extra_keep_vars` / `local extra_keep_vars` if you want the low-memory loader to carry extra columns forward. In R, you can either edit those settings inside the script or set them before `source()`. If an extra variable changes names across years, use `extra_var_families` instead. Each family lists raw aliases and creates one merged output column by filling from those aliases in order. This is only a name-alias merge; if the coding or meaning changes across years, harmonize that added variable later in `02_clean_and_analyze.*` or in your analysis code.
+
 ### Step 3: Clean and Analyze
 
 **Stata:**
@@ -95,7 +134,7 @@ do code/02_clean_and_analyze.do
 source("code/02_clean_and_analyze.R")
 ```
 
-This creates demographics, food security outcomes, SNAP participation indicators, and other food assistance variables. Includes descriptive statistics and an example regression.
+This creates demographics, food security outcomes, SNAP participation indicators, and other food assistance variables. The R script keeps descriptive statistics and example regression blocks optional; the Stata script prints starter tabulations while cleaning.
 
 ## Key Variables Created
 
