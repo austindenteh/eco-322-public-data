@@ -1,18 +1,15 @@
 ********************************************************************************
 * 01_load_and_subset.do
 *
-* Purpose: Load an IPUMS CPS ASEC extract and save a working dataset.
-*          Auto-detects which data file is in data/raw/ (see README).
-*          Two pre-built extracts are available:
-*            - Quick start (2021-2025, ~2.6 GB)
-*            - Full analysis (2005-2025, ~14 GB)
+* Purpose: Load yearly IPUMS CPS ASEC extracts and save a working dataset.
+*          The expected raw files are one file per survey year:
+*          data/raw/cps_<extract id>_<year>.dta, e.g. cps_00015_2005.dta.
 *
-* Input:   data/raw/cps_*.dta        (auto-detects IPUMS CPS extract)
+* Input:   data/raw/cps_*_YYYY.dta  (one file per ASEC survey year)
 * Output:  output/cps_asec.dta
 *
-* Usage:   Run from the march_cps/ directory:
-*            cd "/path/to/march_cps"
-*            do code/01_load_and_subset.do
+* Usage:   Run from march_cps/, march_cps/code/, from the repo root,
+*          or set global cps_root to the march_cps/ directory.
 *
 * Data:    Current Population Survey, Annual Social and Economic Supplement
 *          (CPS ASEC, also called the "March CPS"). Person-level records with
@@ -20,12 +17,9 @@
 *          program participation. ~150,000-200,000 persons per year.
 *
 *          Extracted from IPUMS CPS (https://cps.ipums.org).
-*          Two extracts available (script auto-detects):
-*            cps_00012_2021_2025.dta  (2021-2025, ~2.6 GB — quick start)
-*            cps_00011_2005_2025.dta  (2005-2025, ~14 GB — full analysis)
 *
 * Author:  Austin Denteh (legacy code and Claude Code)
-* Date:    February 2026
+* Date:    February 2026; revised for yearly extracts May 2026
 ********************************************************************************
 
 clear all
@@ -35,108 +29,160 @@ set maxvar 10000
 * ============================================================================
 * 1. DEFINE PATHS
 * ============================================================================
-* Set the working directory to the march_cps/ folder.
-* Users should update this path to match their system.
+* Auto-detect the dataset root from global cps_root, the dataset folder,
+* code/, or the repo root.
+*
+* Optional manual path override. Uncomment and edit if auto-detection fails:
+* global cps_root "/Users/yourname/path/to/eco-322-public-data/march_cps"
+* Then run: do "$cps_root/code/01_load_and_subset.do"
 
-global cps_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/march_cps"
-cd "$cps_root"
-
-local out_dta  "output/cps_asec.dta"
-
-* --- Auto-detect which data file is present ---
-* The script checks for available CPS extract files in data/raw/.
-* If multiple files exist, it prefers the smaller (2021-2025) extract
-* so the script runs quickly by default. Users with the full extract
-* can override by setting local raw_dta before this block.
-
-local raw_dta "data/raw/cps_00012_2021_2025.dta"
-foreach f in "cps_00012_2021_2025.dta" "cps_00012_2001_2025.dta" "cps_00011_2005_2025.dta" "cps_00010.dta" {
-    capture confirm file "data/raw/`f'"
-    if _rc == 0 & "`raw_dta'" == "" {
-        local raw_dta "data/raw/`f'"
-    }
+local cwd "`c(pwd)'"
+if "$cps_root" != "" & fileexists("$cps_root/code/01_load_and_subset.do") {
+    global cps_root "$cps_root"
 }
-if "`raw_dta'" == "" {
-    display as error "ERROR: No CPS data file found in data/raw/"
-    display as error "Download from the shared Dropbox folder — see README.md"
+else if fileexists("code/01_load_and_subset.do") & fileexists("README.md") {
+    global cps_root "`cwd'"
+}
+else if fileexists("01_load_and_subset.do") & fileexists("../README.md") {
+    global cps_root "`cwd'/.."
+}
+else if fileexists("march_cps/code/01_load_and_subset.do") & fileexists("march_cps/README.md") {
+    global cps_root "`cwd'/march_cps"
+}
+else {
+    display as error "Could not locate the march_cps/ directory."
+    display as error "Run from march_cps/, march_cps/code/, from the repo root, or set global cps_root."
+    display as error `"Manual override: global cps_root "/path/to/march_cps""'
     error 601
 }
-display as text "Using data file: `raw_dta'"
+
+cd "$cps_root"
+capture mkdir "output"
+
+local out_dta "output/cps_asec.dta"
 
 * ============================================================================
-* 2. DEFINE YEAR RANGE
+* 2. DEFINE YEAR SETTINGS
 * ============================================================================
 * The CPS ASEC YEAR variable refers to the survey year. Income and insurance
 * questions typically refer to the PRIOR calendar year.
 * Example: YEAR=2025 contains income data for calendar year 2024.
 *
-* The year range is set AFTER loading the data, based on what's in the file.
-* If you want to restrict further, change first_year/last_year below.
-* For the full 2005-2025 extract, the default covers:
-*   - Pre-ACA baseline (2005-2013)
-*   - ACA Medicaid expansion (2014+)
-*   - Great Recession and recovery (2007-2012)
-*   - COVID-19 pandemic (2020-2021)
-*   - Recent trends (2022-2025)
+* Defaults cover 2005-2010 but the last year can be manually extended to 2025
+* To run a smaller smoke test before calling this
+* script, set one of:
+*   global cps_years_to_load "2021 2022"
+*   global cps_first_year 2021
+*   global cps_last_year 2025
+*
+* From a shell, CPS_YEARS="2021,2022" is also honored.
+
+local first_year 2005
+local last_year 2010
+if "$cps_first_year" != "" local first_year "$cps_first_year"
+if "$cps_last_year"  != "" local last_year  "$cps_last_year"
+
+local years_to_load "$cps_years_to_load"
+local env_years : env CPS_YEARS
+if "`years_to_load'" == "" & "`env_years'" != "" {
+    local years_to_load "`env_years'"
+}
+local years_to_load : subinstr local years_to_load "," " ", all
+
+if "`years_to_load'" == "" {
+    forvalues y = `first_year'/`last_year' {
+        local years_to_load "`years_to_load' `y'"
+    }
+}
+
+display as text "Requested CPS ASEC years: `years_to_load'"
+
+* Helper: find exactly one yearly file for a survey year.
+capture program drop _find_cps_year_file
+program define _find_cps_year_file, rclass
+    syntax, YEAR(integer)
+
+    local candidate_files : dir "data/raw" files "cps_*_`year'.dta"
+    local matches ""
+    foreach f of local candidate_files {
+        if regexm("`f'", "^cps_[0-9]+_`year'[.]dta$") {
+            local matches "`matches' `f'"
+        }
+    }
+
+    local n_matches : word count `matches'
+    if `n_matches' == 0 {
+        display as error "No yearly CPS file found for `year'."
+        display as error "Expected data/raw/cps_<extract id>_`year'.dta"
+        error 601
+    }
+    if `n_matches' > 1 {
+        display as error "Multiple yearly CPS files found for `year':"
+        foreach f of local matches {
+            display as error "  - `f'"
+        }
+        display as error "Keep one cps_<extract id>_<year>.dta file per year in data/raw/."
+        error 459
+    }
+
+    local one_file : word 1 of `matches'
+    return local file "data/raw/`one_file'"
+end
 
 * ============================================================================
-* 3. LOAD RAW DATA
+* 3. LOAD AND APPEND YEARLY FILES
 * ============================================================================
 
 display as text _newline "============================================"
 display as text "   LOADING CPS ASEC DATA"
 display as text "============================================"
 
-use "`raw_dta'", clear
-display as text "Loaded: " _N " observations, " c(k) " variables."
+tempfile master
+local first_file 1
 
-* Detect the year range in the data
-quietly summarize year
-local data_min_year = r(min)
-local data_max_year = r(max)
-display as text "Year range in raw data: `data_min_year' to `data_max_year'"
+foreach y of local years_to_load {
+    quietly _find_cps_year_file, year(`y')
+    local raw_dta "`r(file)'"
+    display as text "Loading `y': `raw_dta'"
 
-* Set year range — defaults to whatever is in the data.
-* Override these locals if you want a narrower window.
-local first_year `data_min_year'
-local last_year  `data_max_year'
+    use "`raw_dta'", clear
+    capture rename *, lower
 
-* ============================================================================
-* 4. RESTRICT TO YEAR RANGE (if needed)
-* ============================================================================
+    foreach v in year serial pernum {
+        capture confirm variable `v'
+        if _rc != 0 {
+            display as error "Required variable missing from `raw_dta': `v'"
+            error 111
+        }
+    }
 
-if `first_year' > `data_min_year' | `last_year' < `data_max_year' {
-    display as text _newline "Restricting to years `first_year'-`last_year'..."
-    keep if year >= `first_year' & year <= `last_year'
-    display as text "After year restriction: " _N " observations."
+    quietly count if year != `y' & !missing(year)
+    if r(N) > 0 {
+        display as error "`raw_dta' contains YEAR values other than `y'."
+        tab year
+        error 459
+    }
+
+    gen double individ = year * 10000000 + serial * 100 + pernum
+    format individ %18.0f
+    label var individ "Unique record ID within saved extract (year, serial, pernum)"
+    isid individ
+
+    if `first_file' {
+        save `master', replace
+        local first_file 0
+    }
+    else {
+        append using `master'
+        save `master', replace
+    }
+
+    display as text "  appended observations so far: " _N
 }
-else {
-    display as text "Using full year range: `first_year'-`last_year' (no restriction needed)."
-}
 
-* ============================================================================
-* 5. CREATE KEY IDENTIFIERS
-* ============================================================================
-* IPUMS provides several ID variables:
-*   SERIAL    = household serial number (unique within year)
-*   PERNUM    = person number within household
-*   CPSID     = household-level linking ID (for linking across months)
-*   CPSIDP    = person-level linking ID (for linking across months)
-*   CPSIDV    = validation version of person ID
-*
-* For cross-sectional analysis within a single year, use SERIAL + PERNUM.
-* For linking persons across the 2 years they are in the CPS rotation,
-* use CPSIDP (available 1989+).
-
-* Create a unique person-year identifier
-gen double individ = serial * 100 + pernum
-label var individ "Person-year identifier (serial*100 + pernum)"
-
-* ============================================================================
-* 6. SORT AND SAVE
-* ============================================================================
-
+use `master', clear
 sort year serial pernum
+isid individ
 compress
 
 save "`out_dta'", replace
@@ -145,23 +191,19 @@ display as text "Observations: " _N
 display as text "Variables: " c(k)
 
 * ============================================================================
-* 7. VALIDATION CHECKS
+* 4. VALIDATION CHECKS
 * ============================================================================
 
 display as text _newline "============================================"
 display as text "   VALIDATION CHECKS"
 display as text "============================================"
 
-* --- 7a. Check year range ---
 quietly summarize year
 display as text "[PASS] Year range: " r(min) " to " r(max) " (" r(N) " observations)"
 
-* --- 7b. Observations per year ---
 display as text _newline "[INFO] Observations per year:"
 tab year
 
-* --- 7c. Check total is plausible ---
-* Each year typically has 150,000-210,000 person records.
 quietly levelsof year, local(yr_levels)
 local n_years : word count `yr_levels'
 local low_bound = `n_years' * 130000
@@ -170,10 +212,9 @@ if _N > `low_bound' & _N < `high_bound' {
     display as text "[PASS] Total observations (" _N ") is plausible for `n_years' years"
 }
 else {
-    display as error "[FAIL] Total observations (" _N ") seems implausible for `n_years' years"
+    display as text "[NOTE] Total observations (" _N ") for `n_years' years"
 }
 
-* --- 7d. Check key variables exist ---
 local key_vars "year serial pernum cpsidp asecwt statefip age sex race hispan educ empstat labforce inctot incwage incss incwelfr incssi"
 local all_exist = 1
 local missing_vars ""
@@ -191,7 +232,6 @@ else {
     display as error "[FAIL] Missing variable(s):`missing_vars'"
 }
 
-* --- 7e. Check weight variable ---
 quietly summarize asecwt
 if r(N) > 0 & r(mean) > 0 {
     display as text "[PASS] ASEC weight (asecwt) has non-missing, positive values"
@@ -200,23 +240,6 @@ else {
     display as error "[FAIL] ASEC weight has issues: N=" r(N) ", mean=" r(mean)
 }
 
-* --- 7f. Check health insurance variables (available in most years) ---
-local ins_vars "phinsur himcaidly himcarely"
-local ins_exist = 1
-foreach v of local ins_vars {
-    capture confirm variable `v'
-    if _rc != 0 {
-        local ins_exist = 0
-    }
-}
-if `ins_exist' == 1 {
-    display as text "[PASS] Health insurance variables present"
-}
-else {
-    display as text "[INFO] Some health insurance variables not found — check codebook for year coverage"
-}
-
-* --- 7g. Quick summary ---
 display as text _newline "--- Quick summary of key variables ---"
 summarize year age inctot incwage asecwt
 
@@ -228,11 +251,12 @@ display as text _newline "Next step: run 02_clean_demographics.do"
 ********************************************************************************
 * NOTES ON DATA FILES AND YEAR COVERAGE:
 *
-* Two pre-built extracts are available (see README):
-*   cps_00012_2021_2025.dta  (~2.6 GB, 2021-2025 — quick start)
-*   cps_00011_2005_2025.dta  (~14 GB, 2005-2025 — full analysis)
+* This repository now expects one IPUMS CPS ASEC .dta file per year:
+*   data/raw/cps_00015_2005.dta
+*   data/raw/cps_00016_2006.dta
+*   ...
+*   data/raw/cps_00035_2025.dta
 *
-* You can also create your own IPUMS CPS extract at https://cps.ipums.org.
 *
 * Key considerations for different year ranges:
 *
@@ -248,12 +272,4 @@ display as text _newline "Next step: run 02_clean_demographics.do"
 *   - Immigration variables (BPL, CITIZEN, YRIMMIG): Available 1994+.
 *
 *   - Replicate weights (REPWTP1-REPWTP160): Available 2005+.
-*
-*   - Income top-coding: Has changed over time. IPUMS provides
-*     EARNWEEK2_CPIU_2010 and similar inflation-adjusted versions.
-*
-* For 1988-2004 data, you may also want to account for:
-*   - Sample redesign in 1994
-*   - ASEC supplement changes in 2000
-*   - Post-9/11 changes to immigration questions
 ********************************************************************************

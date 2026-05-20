@@ -8,7 +8,8 @@
 * Input:   output/cps_asec.dta  (from 01_load_and_subset.do)
 * Output:  output/cps_clean.dta
 *
-* Usage:   Run after 01_load_and_subset.do from the march_cps/ directory.
+* Usage:   Run after 01_load_and_subset.do from march_cps/, march_cps/code/,
+*          from the repo root, or with global cps_root set manually.
 *
 * Note:    The CPS ASEC uses IPUMS harmonized variables. IPUMS has already
 *          done substantial cross-year harmonization, but some variables
@@ -25,11 +26,40 @@ set more off
 * 1. DEFINE PATHS
 * ============================================================================
 
-global cps_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/march_cps"
+* Auto-detect the dataset root from global cps_root, the dataset folder,
+* code/, or the repo root.
+*
+* Optional manual path override. Uncomment and edit if auto-detection fails:
+* global cps_root "/Users/yourname/path/to/eco-322-public-data/march_cps"
+* Then run: do "$cps_root/code/02_clean_demographics.do"
+
+local cwd "`c(pwd)'"
+if "$cps_root" != "" & fileexists("$cps_root/code/02_clean_demographics.do") {
+    global cps_root "$cps_root"
+}
+else if fileexists("code/02_clean_demographics.do") & fileexists("README.md") {
+    global cps_root "`cwd'"
+}
+else if fileexists("02_clean_demographics.do") & fileexists("../README.md") {
+    global cps_root "`cwd'/.."
+}
+else if fileexists("march_cps/code/02_clean_demographics.do") & fileexists("march_cps/README.md") {
+    global cps_root "`cwd'/march_cps"
+}
+else {
+    display as error "Could not locate the march_cps/ directory."
+    display as error "Run from march_cps/, march_cps/code/, from the repo root, or set global cps_root."
+    display as error `"Manual override: global cps_root "/path/to/march_cps""'
+    error 601
+}
+
 cd "$cps_root"
 
 local in_dta   "output/cps_asec.dta"
 local out_dta  "output/cps_clean.dta"
+
+* Keep example analyses available for teaching without making cleaning heavy.
+local run_examples 0
 
 * ============================================================================
 * 2. LOAD DATA
@@ -256,20 +286,20 @@ label var snap "Household received SNAP/food stamps"
 * We create harmonized indicators using what's available across years.
 
 * --- 8a. Any health insurance coverage (prior year) --------------------------
-* PHINSUR: 1=Has private insurance, 2=Does not (available most years)
-capture gen has_private_ins = (phinsur == 1) if phinsur >= 1 & phinsur <= 2
+* PHINSUR: 1=No private insurance, 2=Has private insurance
+capture gen has_private_ins = (phinsur == 2) if phinsur >= 1 & phinsur <= 2
 capture label var has_private_ins "Has private health insurance"
 
-* HIMCAIDLY: 1=Covered by Medicaid last year, 2=Not covered
+* HIMCAIDLY: 1=Not covered by Medicaid last year, 2=Covered
 capture gen medicaid = (himcaidly == 2) if himcaidly >= 1 & himcaidly <= 2
 capture label var medicaid "Covered by Medicaid (last year)"
 
-* HIMCARELY: 1=Covered by Medicare last year, 2=Not covered
+* HIMCARELY: 1=Not covered by Medicare last year, 2=Covered
 capture gen medicare = (himcarely == 2) if himcarely >= 1 & himcarely <= 2
 capture label var medicare "Covered by Medicare (last year)"
 
-* COVERGH: 1=Covered by group health plan, 2=Not
-capture gen employer_ins = (covergh == 1) if covergh >= 1 & covergh <= 2
+* COVERGH: 1=Not covered by group health plan, 2=Covered
+capture gen employer_ins = (covergh == 2) if covergh >= 1 & covergh <= 2
 capture label var employer_ins "Covered by employer/group health plan"
 
 * ANYCOVLY: Any insurance coverage last year (2019+)
@@ -285,8 +315,8 @@ gen uninsured = .
 * For years with ANYCOVLY (2019+)
 capture replace uninsured = (anycovly == 1) if anycovly >= 1 & anycovly <= 2
 * For earlier years, construct from components
-capture replace uninsured = 1 if missing(uninsured) & phinsur == 2 & himcaidly == 1 & himcarely == 1
-capture replace uninsured = 0 if missing(uninsured) & (phinsur == 1 | himcaidly == 2 | himcarely == 2)
+capture replace uninsured = 1 if missing(uninsured) & phinsur == 1 & himcaidly == 1 & himcarely == 1
+capture replace uninsured = 0 if missing(uninsured) & (phinsur == 2 | himcaidly == 2 | himcarely == 2)
 label var uninsured "Uninsured (no health insurance coverage)"
 
 * ============================================================================
@@ -298,17 +328,16 @@ label var uninsured "Uninsured (no health insurance coverage)"
 capture gen foreign_born = (nativity == 5) if nativity >= 1 & nativity <= 5
 capture label var foreign_born "Foreign-born"
 
-* Citizenship
-capture gen citizen = .
-capture replace citizen = 1 if citizen == 1 | citizen == 2  // Born in US
-capture replace citizen = 1 if citizen == 3                  // Naturalized
-capture replace citizen = 0 if citizen == 4 | citizen == 5   // Not a citizen
+* Citizenship:
+*   1 = Born in U.S., 2 = Born in U.S. outlying area,
+*   3 = Born abroad of American parents, 4 = Naturalized, 5 = Not a citizen.
+capture gen us_citizen = inlist(citizen, 1, 2, 3, 4) if inlist(citizen, 1, 2, 3, 4, 5)
+capture label var us_citizen "U.S. citizen"
 
-* Since IPUMS uses 'citizen' as the variable name, create a separate indicator
-capture gen noncitizen = (citizen >= 4 & citizen <= 5) if citizen >= 1 & citizen <= 5
+capture gen noncitizen = (citizen == 5) if inlist(citizen, 1, 2, 3, 4, 5)
 capture label var noncitizen "Non-citizen"
 
-capture gen naturalized = (citizen == 3) if citizen >= 1 & citizen <= 5
+capture gen naturalized = (citizen == 4) if inlist(citizen, 1, 2, 3, 4, 5)
 capture label var naturalized "Naturalized citizen"
 
 * Birth place (foreign vs. domestic)
@@ -322,23 +351,50 @@ capture label var yrimm "Year of immigration (if foreign-born)"
 * ============================================================================
 * 10. POVERTY
 * ============================================================================
-* IPUMS provides OFFPOV (official poverty status) and POVERTY
-* (poverty threshold as % of poverty line)
+* IPUMS OFFPOV is the official poverty classification. OFFTOTVAL and
+* OFFCUTOFF support a continuous official poverty ratio.
 
-capture gen poverty_ratio = poverty / 100 if poverty > 0 & poverty < 999
-capture label var poverty_ratio "Family income as ratio of poverty line"
+capture confirm variable offpov
+local has_offpov = (_rc == 0)
+capture confirm variable offpovuniv
+local has_offpovuniv = (_rc == 0)
+capture confirm variable offtotval
+local has_offtotval = (_rc == 0)
+capture confirm variable offcutoff
+local has_offcutoff = (_rc == 0)
 
-capture gen below_poverty = (poverty > 0 & poverty < 100) if poverty > 0 & poverty < 999
-capture label var below_poverty "Below 100% FPL"
+if `has_offpov' & `has_offpovuniv' & `has_offtotval' & `has_offcutoff' {
+    gen official_poverty_ratio = offtotval / offcutoff ///
+        if offpovuniv == 1 & offtotval < 9999999999 & offcutoff > 0 & offcutoff < 999999
+    label var official_poverty_ratio "Official family income / official poverty cutoff"
 
-capture gen below_138fpl = (poverty > 0 & poverty < 138) if poverty > 0 & poverty < 999
-capture label var below_138fpl "Below 138% FPL (Medicaid expansion threshold)"
+    gen below_poverty = .
+    replace below_poverty = 1 if offpov == 1
+    replace below_poverty = 0 if offpov == 2
+    label var below_poverty "Below official poverty line"
 
-capture gen below_200fpl = (poverty > 0 & poverty < 200) if poverty > 0 & poverty < 999
-capture label var below_200fpl "Below 200% FPL"
+    gen below_138fpl = (official_poverty_ratio < 1.38) if !missing(official_poverty_ratio)
+    label var below_138fpl "Below 138% official poverty threshold"
 
-capture gen below_400fpl = (poverty > 0 & poverty < 400) if poverty > 0 & poverty < 999
-capture label var below_400fpl "Below 400% FPL (ACA marketplace subsidy threshold)"
+    gen below_200fpl = (official_poverty_ratio < 2) if !missing(official_poverty_ratio)
+    label var below_200fpl "Below 200% official poverty threshold"
+
+    gen below_400fpl = (official_poverty_ratio < 4) if !missing(official_poverty_ratio)
+    label var below_400fpl "Below 400% official poverty threshold"
+}
+else {
+    capture gen official_poverty_ratio = .
+    capture label var official_poverty_ratio "Official family income / official poverty cutoff"
+
+    capture gen below_poverty = .
+    capture replace below_poverty = 1 if poverty == 10
+    capture replace below_poverty = 0 if inlist(poverty, 20, 21, 22, 23)
+    capture label var below_poverty "Below poverty line"
+
+    capture gen below_138fpl = .
+    capture gen below_200fpl = .
+    capture gen below_400fpl = .
+}
 
 * ============================================================================
 * 11. SAVE
@@ -357,62 +413,73 @@ display as text "Variables: " c(k)
 * ============================================================================
 
 display as text _newline "============================================"
-display as text "   DESCRIPTIVE STATISTICS"
+display as text "   DESCRIPTIVE STATISTICS (optional; not run by default)"
 display as text "============================================"
 
-* --- 12a. Sample sizes ---
-display as text _newline "--- Sample sizes by year ---"
-tab year
+if `run_examples' {
+    * --- 12a. Sample sizes ---
+    display as text _newline "--- Sample sizes by year ---"
+    tab year
 
-* --- 12b. Demographics (unweighted) ---
-display as text _newline "--- Age (working-age adults) ---"
-summarize age if working_age, detail
+    * --- 12b. Demographics (unweighted) ---
+    display as text _newline "--- Age (working-age adults) ---"
+    summarize age if working_age, detail
 
-display as text _newline "--- Gender ---"
-tab female
+    display as text _newline "--- Gender ---"
+    tab female
 
-display as text _newline "--- Race/ethnicity ---"
-tab race_eth
+    display as text _newline "--- Race/ethnicity ---"
+    tab race_eth
 
-display as text _newline "--- Education ---"
-tab educ_cat
+    display as text _newline "--- Education ---"
+    tab educ_cat
 
-* --- 12c. Labor market ---
-display as text _newline "--- Employment status (working-age adults) ---"
-tab employed if working_age
+    * --- 12c. Labor market ---
+    display as text _newline "--- Employment status (working-age adults) ---"
+    tab employed if working_age
 
-* --- 12d. Income ---
-display as text _newline "--- Total income (working-age adults with positive income) ---"
-summarize totalinc if working_age & totalinc > 0, detail
+    * --- 12d. Income ---
+    display as text _newline "--- Total income (working-age adults with positive income) ---"
+    summarize totalinc if working_age & totalinc > 0, detail
 
-* --- 12e. Health insurance ---
-display as text _newline "--- Uninsured rate by year (working-age adults, unweighted) ---"
-tab year uninsured if working_age, row nofreq
+    * --- 12e. Health insurance ---
+    display as text _newline "--- Uninsured rate by year (working-age adults, unweighted) ---"
+    tab year uninsured if working_age, row nofreq
 
-* --- 12f. Transfer programs ---
-display as text _newline "--- Transfer program participation (all persons) ---"
-summarize snap receives_ss receives_ssi receives_welfare receives_ui
+    * --- 12f. Transfer programs ---
+    display as text _newline "--- Transfer program participation (all persons) ---"
+    summarize snap receives_ss receives_ssi receives_welfare receives_ui
+}
+else {
+    display as text "Set local run_examples 1 near the top of this script to print tables."
+}
 
 * ============================================================================
 * 13. EXAMPLE REGRESSIONS
 * ============================================================================
 
 display as text _newline "============================================"
-display as text "   EXAMPLE REGRESSIONS"
+display as text "   EXAMPLE REGRESSIONS (optional; not run by default)"
 display as text "============================================"
 
-* --- 13a. Unweighted OLS: log wage ~ demographics ---
-display as text _newline "--- OLS: Log wage income (working-age adults, unweighted) ---"
-gen lnwage = ln(wageinc) if wageinc > 0
-regress lnwage female age i.race_eth i.educ_cat i.year if working_age
+if `run_examples' {
+    * --- 13a. Unweighted OLS: log wage ~ demographics ---
+    display as text _newline "--- OLS: Log wage income (working-age adults, unweighted) ---"
+    capture drop lnwage
+    gen lnwage = ln(wageinc) if wageinc > 0
+    regress lnwage female age i.race_eth i.educ_cat i.year if working_age
 
-* --- 13b. Weighted regression ---
-display as text _newline "--- Weighted OLS: Log wage income ---"
-regress lnwage female age i.race_eth i.educ_cat i.year if working_age [pweight = asecwt]
+    * --- 13b. Weighted regression ---
+    display as text _newline "--- Weighted OLS: Log wage income ---"
+    regress lnwage female age i.race_eth i.educ_cat i.year if working_age [pweight = asecwt]
 
-* --- 13c. Uninsured probability (LPM) ---
-display as text _newline "--- Weighted LPM: Uninsured probability ---"
-regress uninsured female age i.race_eth i.educ_cat i.year if working_age [pweight = asecwt]
+    * --- 13c. Uninsured probability (LPM) ---
+    display as text _newline "--- Weighted LPM: Uninsured probability ---"
+    regress uninsured female age i.race_eth i.educ_cat i.year if working_age [pweight = asecwt]
+}
+else {
+    display as text "Set local run_examples 1 near the top of this script to run examples."
+}
 
 display as text _newline "============================================"
 display as text "   DONE"
@@ -421,9 +488,10 @@ display as text "============================================"
 ********************************************************************************
 * NOTES FOR USERS:
 *
-* 1. WEIGHTS: Use ASECWT for person-level estimates. For household-level
-*    analyses, use HWTSUPP. IPUMS also provides replicate weights (REPWTP1-
-*    REPWTP160) for variance estimation starting in 2005.
+* 1. WEIGHTS: Use ASECWT for person-level estimates. If your extract includes
+*    HWTSUPP, use it for household-level analyses. IPUMS also provides
+*    replicate weights (REPWTP1-REPWTP160) for variance estimation starting
+*    in 2005.
 *
 * 2. INCOME REFERENCE PERIOD: CPS ASEC income and insurance questions
 *    typically refer to the PRIOR calendar year. Example: YEAR=2025 data
@@ -438,10 +506,10 @@ display as text "============================================"
 *    across years (RACE, EDUC, EMPSTAT, etc.). The IPUMS codebook and
 *    comparability documentation should be your first reference.
 *
-* 5. POVERTY VARIABLES: OFFPOV and POVERTY use the official Census Bureau
-*    poverty thresholds. The 138% FPL threshold is used for ACA Medicaid
-*    expansion eligibility. The 400% FPL threshold is the ACA marketplace
-*    subsidy cutoff.
+* 5. POVERTY VARIABLES: OFFPOV is the official poverty classification.
+*    official_poverty_ratio is OFFTOTVAL divided by OFFCUTOFF for persons
+*    in the official poverty universe. The 138%, 200%, and 400% indicators
+*    are derived from that ratio.
 *
 * 6. SURVEY DESIGN: For correct standard errors with CPS data, you can use:
 *      - Replicate weights: svyset [pw=asecwt], sdr(repwtp*) vce(sdr)
