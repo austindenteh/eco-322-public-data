@@ -30,7 +30,7 @@ set more off
 * code/, or the repo root.
 *
 * Optional manual path override. Uncomment and edit if auto-detection fails:
-* global cps_root "/Users/yourname/path/to/eco-322-public-data/march_cps"
+* global cps_root "/Users/yourname/path/to/econ-data-starters/march_cps"
 * Then run: do "$cps_root/code/02_clean_demographics.do"
 
 local cwd "`c(pwd)'"

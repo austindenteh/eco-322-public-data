@@ -30,7 +30,7 @@ library(dplyr)      # data wrangling
 
 # Optional manual path override. Leave as NULL for auto-detection.
 # Example:
-# cps_root_manual <- "/Users/yourname/path/to/eco-322-public-data/march_cps"
+# cps_root_manual <- "/Users/yourname/path/to/econ-data-starters/march_cps"
 if (!exists("cps_root_manual", inherits = TRUE)) {
   cps_root_manual <- NULL
 }

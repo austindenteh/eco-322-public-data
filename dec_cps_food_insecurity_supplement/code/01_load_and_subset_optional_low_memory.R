@@ -27,7 +27,7 @@ library(dplyr)
 
 # Optional manual path override. Leave as NULL for auto-detection.
 # Example:
-# dec_cps_root_manual <- "/Users/yourname/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement"
+# dec_cps_root_manual <- "/Users/yourname/path/to/econ-data-starters/dec_cps_food_insecurity_supplement"
 if (!exists("dec_cps_root_manual", inherits = TRUE)) {
   dec_cps_root_manual <- NULL
 }

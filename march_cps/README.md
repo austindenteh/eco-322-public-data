@@ -73,7 +73,7 @@ The starter scripts now expect one yearly file per requested year. The older bul
 **Option B — Create your own IPUMS CPS extract:**
 If you need different years or variables, you can build a custom extract directly from IPUMS CPS. The starter scripts will work with any IPUMS CPS ASEC extract as long as the core variables are included.
 
-1. **Create an account** at https://cps.ipums.org (free for researchers/students)
+1. **Create a free account** at https://cps.ipums.org
 2. **Select samples**: Click "SELECT SAMPLES" → check the **ASEC** box for each year you want (e.g., 2010–2025). Make sure you are selecting ASEC samples, not the basic monthly CPS.
 3. **Select variables**: Click "SELECT VARIABLES" and add at minimum the variables listed in the yearly codebooks in `docs/` (for example, `docs/cps_00015.cbk`). The key variables needed by the starter scripts are:
    - *Demographics*: `AGE`, `SEX`, `RACE`, `HISPAN`, `EDUC`, `MARST`, `STATEFIP`
@@ -109,21 +109,21 @@ If path auto-detection fails, set the March CPS folder manually before running t
 
 **Stata:**
 ```stata
-global cps_root "/path/to/eco-322-public-data/march_cps"
+global cps_root "/path/to/econ-data-starters/march_cps"
 do "$cps_root/code/01_load_and_subset.do"
 ```
 
 **R:**
 ```r
-cps_root_manual <- "/path/to/eco-322-public-data/march_cps"
+cps_root_manual <- "/path/to/econ-data-starters/march_cps"
 source(file.path(cps_root_manual, "code", "01_load_and_subset.R"))
 ```
 
 You can also set the R override before sourcing:
 
 ```r
-Sys.setenv(CPS_ROOT = "/path/to/eco-322-public-data/march_cps")
-source("/path/to/eco-322-public-data/march_cps/code/01_load_and_subset.R")
+Sys.setenv(CPS_ROOT = "/path/to/econ-data-starters/march_cps")
+source("/path/to/econ-data-starters/march_cps/code/01_load_and_subset.R")
 ```
 
 By default, the loaders use yearly files from 2005 through 2010. To load the full 2005-2025 period, change `last_year` inside the loader to `2025` or set an explicit year list first:

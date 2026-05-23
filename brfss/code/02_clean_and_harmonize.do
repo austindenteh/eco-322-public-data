@@ -17,7 +17,7 @@
 *            cd "/path/to/brfss/code"
 *            do 02_clean_and_harmonize.do
 *          or
-*            cd "/path/to/eco-322-public-data"
+*            cd "/path/to/econ-data-starters"
 *            do brfss/code/02_clean_and_harmonize.do
 *
 * Key harmonization issues:

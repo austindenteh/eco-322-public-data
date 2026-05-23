@@ -89,21 +89,21 @@ If path auto-detection fails, set the December CPS folder manually before runnin
 
 **Stata:**
 ```stata
-global dec_cps_root "/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement"
+global dec_cps_root "/path/to/econ-data-starters/dec_cps_food_insecurity_supplement"
 do "$dec_cps_root/code/01_load_and_subset.do"
 ```
 
 **R:**
 ```r
-dec_cps_root_manual <- "/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement"
+dec_cps_root_manual <- "/path/to/econ-data-starters/dec_cps_food_insecurity_supplement"
 source(file.path(dec_cps_root_manual, "code", "01_load_and_subset.R"))
 ```
 
 You can also set the R override before sourcing:
 
 ```r
-Sys.setenv(DEC_CPS_ROOT = "/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement")
-source("/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement/code/01_load_and_subset.R")
+Sys.setenv(DEC_CPS_ROOT = "/path/to/econ-data-starters/dec_cps_food_insecurity_supplement")
+source("/path/to/econ-data-starters/dec_cps_food_insecurity_supplement/code/01_load_and_subset.R")
 ```
 
 The standard loaders keep all columns from the IPUMS extract. If you only need the starter variables, use the optional low-memory loader instead:

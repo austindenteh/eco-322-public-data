@@ -79,7 +79,7 @@ do code/01_load_and_append.do
 
 Or from the repo root:
 ```stata
-cd "/path/to/eco-322-public-data"
+cd "/path/to/econ-data-starters"
 do brfss/code/01_load_and_append.do
 ```
 
@@ -91,7 +91,7 @@ source("code/01_load_and_append.R")
 
 Or from the repo root:
 ```r
-setwd("/path/to/eco-322-public-data")
+setwd("/path/to/econ-data-starters")
 source("brfss/code/01_load_and_append.R")
 ```
 
@@ -183,7 +183,7 @@ do code/02_clean_and_harmonize.do
 
 Or from the repo root:
 ```stata
-cd "/path/to/eco-322-public-data"
+cd "/path/to/econ-data-starters"
 do brfss/code/02_clean_and_harmonize.do
 ```
 
@@ -195,7 +195,7 @@ source("code/02_clean_and_harmonize.R")
 
 Or from the repo root:
 ```r
-setwd("/path/to/eco-322-public-data")
+setwd("/path/to/econ-data-starters")
 source("brfss/code/02_clean_and_harmonize.R")
 ```
 

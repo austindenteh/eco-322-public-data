@@ -15,7 +15,7 @@
 *            cd "/path/to/brfss/code"
 *            do 01_load_and_append.do
 *          or
-*            cd "/path/to/eco-322-public-data"
+*            cd "/path/to/econ-data-starters"
 *            do brfss/code/01_load_and_append.do
 *
 * Data:    Behavioral Risk Factor Surveillance System (BRFSS)

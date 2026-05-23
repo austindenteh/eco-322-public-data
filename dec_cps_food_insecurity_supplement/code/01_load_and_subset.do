@@ -34,7 +34,7 @@ set maxvar 10000
 * Auto-detect the dataset root from the current working directory.
 *
 * Optional manual path override. Uncomment and edit if auto-detection fails:
-* global dec_cps_root "/Users/yourname/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement"
+* global dec_cps_root "/Users/yourname/path/to/econ-data-starters/dec_cps_food_insecurity_supplement"
 * Then run: do "$dec_cps_root/code/01_load_and_subset.do"
 
 local cwd `"`c(pwd)'"'

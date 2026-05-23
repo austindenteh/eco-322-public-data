@@ -34,7 +34,7 @@ set more off
 
 * --- Auto-detect dataset root ---
 * Optional manual path override. Uncomment and edit if auto-detection fails:
-* global dec_cps_root "/Users/yourname/path/to/eco-322-public-data/dec_cps_food_insecurity_supplement"
+* global dec_cps_root "/Users/yourname/path/to/econ-data-starters/dec_cps_food_insecurity_supplement"
 * Then run: do "$dec_cps_root/code/02_clean_and_analyze.do"
 
 local cwd `"`c(pwd)'"'
