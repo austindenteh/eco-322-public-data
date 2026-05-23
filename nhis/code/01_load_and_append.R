@@ -10,15 +10,14 @@
 #          POST-2019 (2019-2024): Flat 2-file design
 #            Unzip and import CSV files (adult, child) — simple and fast
 #
-#          PRE-2019 (2004-2014, optional): 5-file hierarchical design
-#            Load .dta files (created by CDC do-files from raw ASCII)
+#          PRE-2019 (2004-2018, optional): 5-file hierarchical design
+#            Load .dta files (created or reused by the Stata loader)
 #            Merge personsx + familyxx + househld + samadult/samchild
 #            Harmonize variable names
 #
-#          NOTE: Pre-2019 .dta files must be created by running the
-#          CDC-provided Stata do-files first. If the .dta files don't exist,
-#          run 01_load_and_append.do in Stata first. For 2019-2024 (the
-#          default), this R script works standalone — no Stata needed.
+#          NOTE: Pre-2019 .dta files must be created by running the Stata
+#          loader first. For 2019-2024 (the default), this R script works
+#          standalone — no Stata needed.
 #
 #          DEFAULT: Loads 2019-2024 only (post-redesign, CSV files).
 #          To include pre-2019 years, uncomment the pre2019_years line
@@ -26,11 +25,10 @@
 #          and skips any missing years.
 #
 # Input:   data/NHIS 2019/ ... data/NHIS 2024/  (CSV in .zip)
-#          data/NHIS 2004/ ... data/NHIS 2014/  (optional: .dta files)
+#          data/NHIS 2004/ ... data/NHIS 2018/  (optional: .dta files)
 # Output:  output/nhis_adult.rds   (sample adults, all loaded years)
-#          output/nhis_adult.dta
 #          output/nhis_child.rds   (sample children, all loaded years)
-#          output/nhis_child.dta
+#          output/nhis_adult_from_r.dta / nhis_child_from_r.dta (optional)
 #
 # Author:  Austin Denteh (legacy code and Claude Code)
 # Date:    February 2026
@@ -44,26 +42,294 @@ library(readr)
 # 1. DEFINE PATHS AND YEAR RANGE
 # ============================================================================
 
-nhis_root <- "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/nhis"
+# Optional manual path override. Leave as NULL for auto-detection.
+# Example:
+# nhis_root_manual <- "/Users/yourname/path/to/econ-data-starters/nhis"
+if (!exists("nhis_root_manual", inherits = TRUE)) {
+  nhis_root_manual <- NULL
+}
+
+get_current_script_dir <- function() {
+  command_args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- grep("^--file=", command_args, value = TRUE)
+  if (length(file_arg) > 0) {
+    script_path <- sub("^--file=", "", file_arg[[1]])
+    return(dirname(normalizePath(script_path, winslash = "/", mustWork = FALSE)))
+  }
+
+  frame_paths <- vapply(sys.frames(), function(frame) {
+    if (!is.null(frame$ofile)) frame$ofile else ""
+  }, character(1))
+  frame_paths <- frame_paths[nzchar(frame_paths)]
+  if (length(frame_paths) > 0) {
+    return(dirname(normalizePath(tail(frame_paths, 1), winslash = "/", mustWork = FALSE)))
+  }
+
+  ""
+}
+
+parent_paths <- function(path) {
+  if (!nzchar(path) || !dir.exists(path)) return(character())
+  path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+  paths <- path
+
+  repeat {
+    parent <- dirname(path)
+    if (identical(parent, path)) break
+    paths <- c(paths, parent)
+    path <- parent
+  }
+
+  paths
+}
+
+resolve_nhis_root <- function(script_name) {
+  env_root <- Sys.getenv("NHIS_ROOT", unset = "")
+
+  rstudio_script_dir <- ""
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    rstudio_script <- tryCatch(
+      rstudioapi::getSourceEditorContext()$path,
+      error = function(e) ""
+    )
+    if (nzchar(rstudio_script)) {
+      rstudio_script_dir <- dirname(rstudio_script)
+    }
+  }
+
+  search_roots <- c(getwd(), get_current_script_dir(), rstudio_script_dir)
+  search_paths <- unique(unlist(lapply(search_roots, parent_paths), use.names = FALSE))
+  candidates <- c(nhis_root_manual, env_root, search_paths, file.path(search_paths, "nhis"))
+  candidates <- unique(candidates[!is.na(candidates) & nzchar(candidates)])
+
+  for (path in candidates) {
+    path_norm <- normalizePath(path, winslash = "/", mustWork = FALSE)
+    if (file.exists(file.path(path_norm, "README.md")) &&
+        file.exists(file.path(path_norm, "code", script_name))) {
+      return(path_norm)
+    }
+  }
+
+  stop(
+    "Could not locate the nhis/ directory.\n",
+    "Run this script from nhis/, nhis/code/, from the repo root, ",
+    "or set nhis_root_manual / NHIS_ROOT to the nhis path.\n",
+    paste0("Current working directory: ", getwd(), "\n"),
+    'Manual override in this script: nhis_root_manual <- "/path/to/nhis"\n',
+    'Manual override before sourcing: Sys.setenv(NHIS_ROOT = "/path/to/nhis")',
+    call. = FALSE
+  )
+}
+
+nhis_root <- resolve_nhis_root("01_load_and_append.R")
+cat(paste0("Using NHIS root: ", nhis_root, "\n"))
+
+out_dir <- file.path(nhis_root, "output")
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 # --- Post-2019 years (redesigned, CSV format — DEFAULT) ---
 # These years use simple CSV files. No special setup needed.
 # The script auto-detects which year folders exist and skips missing ones.
-post2019_years <- 2019:2024
+if (!exists("post2019_years", inherits = TRUE)) {
+  post2019_years <- 2019:2024
+}
 
 # --- Pre-2019 years (OPTIONAL — uncomment to include) ---
-# Pre-2019 years require .dta files (created by running CDC do-files in Stata).
+# Pre-2019 years require .dta files (created by running the Stata loader).
 # If you haven't run the Stata script first, the .dta files won't exist.
 # Leave as empty integer(0) to skip pre-2019 entirely (the default).
 #
 # To include pre-2019 years, uncomment ONE of the lines below:
-# pre2019_years <- 2004:2014
-# pre2019_years <- 2010:2014
-pre2019_years <- integer(0)
+# pre2019_years <- 2004:2018
+# pre2019_years <- 2010:2018
+if (!exists("pre2019_years", inherits = TRUE)) {
+  pre2019_years <- integer(0)
+}
 
-# NOTE: Years 2015-2018 follow pre-2019 design but only have .zip files.
-#       To include them, create .dta files first using the Stata script,
-#       then add to pre2019_years.
+# NOTE: Years 2015-2018 follow the pre-2019 design but some components
+#       arrive as zipped ASCII/CSV files. Run the Stata loader once to create
+#       component .dta files before loading those years in R.
+#
+# The R workflow writes compact .rds files by default. Set this to TRUE only
+# if you also want Stata-format copies created by R. These can be large.
+if (!exists("write_dta_export", inherits = TRUE)) {
+  write_dta_export <- FALSE
+}
+
+normalize_var_names <- function(x) {
+  x <- unname(x)
+  x <- x[!is.na(x) & nzchar(x)]
+  unique(tolower(x))
+}
+
+# Full all-column NHIS builds can exceed memory in R when pre-2019 years are
+# included. Set this to TRUE to keep only variables needed by the starter
+# cleaner, plus any names in extra_vars or extra_var_families.
+if (!exists("keep_starter_vars_only", inherits = TRUE)) {
+  keep_starter_vars_only <- FALSE
+}
+if (!exists("extra_vars", inherits = TRUE)) {
+  extra_vars <- character(0)
+}
+if (!exists("extra_var_families", inherits = TRUE)) {
+  extra_var_families <- list()
+}
+if (is.null(extra_var_families)) {
+  extra_var_families <- list()
+}
+if (!is.list(extra_var_families)) {
+  stop("extra_var_families must be a named list of variable aliases.", call. = FALSE)
+}
+
+extra_vars <- normalize_var_names(extra_vars)
+if (length(extra_var_families) > 0) {
+  family_names <- names(extra_var_families)
+  if (is.null(family_names) ||
+      any(is.na(family_names) | !nzchar(family_names))) {
+    stop("Each entry in extra_var_families must have a descriptive name.", call. = FALSE)
+  }
+  names(extra_var_families) <- tolower(family_names)
+  extra_var_families <- lapply(extra_var_families, normalize_var_names)
+
+  cat(
+    paste(
+      "[INFO] extra_var_families only merge raw aliases into one column.",
+      "If coding or meanings change across years, harmonize that added variable",
+      "later in 02_clean_and_analyze.R or in your analysis code.\n"
+    )
+  )
+}
+family_alias_vars <- normalize_var_names(unlist(extra_var_families, use.names = FALSE))
+
+adult_starter_vars <- c(
+  "srvy_yr", "hhx", "era_post2019",
+  "agep_a", "sex_a", "hisp_a", "raceallp_a", "educ_a",
+  "citizenp_a", "notcov_a", "medicare_a", "medicaid_a", "private_a",
+  "phstat_a", "pdmed12m_a", "pnmed12m_a",
+  "hypev_a", "chlev_a", "chdev_a", "angev_a", "miev_a", "strev_a",
+  "asev_a", "canev_a", "dibev_a", "copdev_a", "arthev_a", "depev_a",
+  "anxev_a", "phqcat_a", "gadcat_a", "bmicat_a",
+  "ratcat_a", "incgrp_a", "ernyr_a", "wtfa_a", "pstrat", "ppsu"
+)
+
+child_starter_vars <- c(
+  "srvy_yr", "hhx", "era_post2019",
+  "agep_c", "sex_c", "hisp_c", "raceallp_c",
+  "notcov_c", "medicare_c", "medicaid_c", "private_c", "phstat_c",
+  "wtfa_c", "pstrat", "ppsu"
+)
+
+keep_starter_columns <- function(df, sample_type) {
+  if (!keep_starter_vars_only) return(df)
+
+  starter_vars <- if (sample_type == "adult") adult_starter_vars else child_starter_vars
+  keep_vars <- unique(c(starter_vars, extra_vars, family_alias_vars, names(extra_var_families)))
+  df %>% select(any_of(keep_vars))
+}
+
+coalesce_family_columns <- function(df, output_name, candidate_vars) {
+  present <- candidate_vars[candidate_vars %in% names(df)]
+  if (length(present) == 0) {
+    return(df)
+  }
+
+  if (output_name %in% names(df) && !(output_name %in% present)) {
+    stop(
+      "extra_var_families output name '", output_name,
+      "' already exists in the data. Include it in that family's alias list ",
+      "or choose a different family name.",
+      call. = FALSE
+    )
+  }
+
+  values <- df[present]
+  if (any(vapply(values, is.character, logical(1)))) {
+    values <- lapply(values, as.character)
+  }
+
+  merged <- values[[1]]
+  if (length(values) > 1) {
+    for (i in 2:length(values)) {
+      merged <- dplyr::coalesce(merged, values[[i]])
+    }
+  }
+
+  df[[output_name]] <- merged
+  df
+}
+
+coalesce_extra_var_families <- function(df, sample_label) {
+  if (length(extra_var_families) == 0 || nrow(df) == 0) {
+    return(df)
+  }
+
+  for (family_name in names(extra_var_families)) {
+    df <- coalesce_family_columns(df, family_name, extra_var_families[[family_name]])
+  }
+  df
+}
+
+report_extra_var_families <- function(df, sample_label) {
+  if (length(extra_var_families) == 0 || nrow(df) == 0) {
+    return(invisible(NULL))
+  }
+
+  missing_families <- character(0)
+  for (family_name in names(extra_var_families)) {
+    present <- extra_var_families[[family_name]][extra_var_families[[family_name]] %in% names(df)]
+    if (length(present) == 0) {
+      missing_families <- c(missing_families, family_name)
+      next
+    }
+
+    nonmissing <- Reduce(`|`, lapply(present, function(var_name) !is.na(df[[var_name]])))
+    if ("srvy_yr" %in% names(df) && any(nonmissing, na.rm = TRUE)) {
+      matched_years <- sort(unique(df$srvy_yr[nonmissing]))
+      cat(paste0(
+        "[INFO] ", sample_label, " extra_var_family '", family_name,
+        "' matched in year(s): ", paste(matched_years, collapse = ", "), "\n"
+      ))
+    } else {
+      cat(paste0(
+        "[INFO] ", sample_label, " extra_var_family '", family_name,
+        "' matched column(s): ", paste(present, collapse = ", "), "\n"
+      ))
+    }
+  }
+
+  if (length(missing_families) == 0) {
+    cat(paste0("[PASS] ", sample_label, ": all extra_var_families matched at least one column\n"))
+  } else {
+    cat(paste0(
+      "[WARN] ", sample_label, ": some extra_var_families never matched: ",
+      paste(missing_families, collapse = ", "), "\n"
+    ))
+  }
+  invisible(NULL)
+}
+
+format_nhis_key <- function(x, width) {
+  x <- haven::zap_labels(x)
+  x_chr <- trimws(as.character(x))
+  x_num <- suppressWarnings(as.numeric(x_chr))
+  out <- ifelse(
+    is.na(x_num),
+    x_chr,
+    sprintf(paste0("%0", width, ".0f"), x_num)
+  )
+  out[is.na(x) | !nzchar(x_chr)] <- NA_character_
+  out
+}
+
+normalize_pre2019_keys <- function(df) {
+  if ("hhx" %in% names(df)) df$hhx <- format_nhis_key(df$hhx, 6)
+  if ("fmx" %in% names(df)) df$fmx <- format_nhis_key(df$fmx, 2)
+  if ("fpx" %in% names(df)) df$fpx <- format_nhis_key(df$fpx, 2)
+  if ("srvy_yr" %in% names(df)) {
+    df$srvy_yr <- as.integer(haven::zap_labels(df$srvy_yr))
+  }
+  df
+}
 
 # ============================================================================
 # HELPER FUNCTION: Load and merge a pre-2019 year
@@ -105,12 +371,14 @@ load_pre2019_year <- function(year, sample_type = "adult") {
   names(person) <- tolower(names(person))
 
   if (!"srvy_yr" %in% names(person)) person$srvy_yr <- year
+  person <- normalize_pre2019_keys(person)
 
   # --- Merge familyxx ---
   fam_file <- file.path(ydir, "familyxx.dta")
   if (file.exists(fam_file)) {
     family <- read_dta(fam_file)
     names(family) <- tolower(names(family))
+    family <- normalize_pre2019_keys(family)
     person <- person %>%
       left_join(family, by = c("hhx", "fmx", "srvy_yr"),
                 suffix = c("", ".fam"))
@@ -123,6 +391,7 @@ load_pre2019_year <- function(year, sample_type = "adult") {
   if (file.exists(hh_file)) {
     house <- read_dta(hh_file)
     names(house) <- tolower(names(house))
+    house <- normalize_pre2019_keys(house)
     person <- person %>%
       left_join(house, by = c("hhx", "srvy_yr"),
                 suffix = c("", ".hh"))
@@ -133,6 +402,7 @@ load_pre2019_year <- function(year, sample_type = "adult") {
   # --- Merge sample file (inner join: keep only sample persons) ---
   sample_data <- read_dta(sample_file)
   names(sample_data) <- tolower(names(sample_data))
+  sample_data <- normalize_pre2019_keys(sample_data)
 
   merged <- person %>%
     inner_join(sample_data, by = c("hhx", "fmx", "fpx", "srvy_yr"),
@@ -282,7 +552,39 @@ load_pre2019_year <- function(year, sample_type = "adult") {
   # Mark era
   merged$era_post2019 <- 0L
 
-  return(merged)
+  keep_starter_columns(merged, sample_type)
+}
+
+bind_rows_compatible <- function(data_list, label) {
+  data_list <- Filter(Negate(is.null), data_list)
+  if (length(data_list) == 0) return(tibble())
+
+  # Stata value labels can make otherwise-compatible numeric columns disagree.
+  data_list <- lapply(data_list, haven::zap_labels)
+
+  all_names <- unique(unlist(lapply(data_list, names), use.names = FALSE))
+  char_vars <- all_names[vapply(all_names, function(nm) {
+    any(vapply(data_list, function(df) {
+      nm %in% names(df) && is.character(df[[nm]])
+    }, logical(1)))
+  }, logical(1))]
+
+  if (length(char_vars) > 0) {
+    data_list <- lapply(data_list, function(df) {
+      for (nm in intersect(char_vars, names(df))) {
+        df[[nm]] <- as.character(df[[nm]])
+      }
+      df
+    })
+    preview <- paste(head(char_vars, 8), collapse = ", ")
+    if (length(char_vars) > 8) preview <- paste0(preview, ", ...")
+    cat(paste0(
+      "[INFO] ", label, ": coerced ", length(char_vars),
+      " mixed character columns before append (", preview, ")\n"
+    ))
+  }
+
+  bind_rows(data_list)
 }
 
 # ============================================================================
@@ -349,6 +651,7 @@ for (y in post2019_years) {
     df <- type_convert(df, col_types = cols(.default = col_guess()))
     if (!"srvy_yr" %in% names(df)) df$srvy_yr <- y
     df$era_post2019 <- 1L
+    df <- keep_starter_columns(df, "adult")
     cat(paste0("  Adult: ", nrow(df), " obs\n"))
     post2019_adult_list[[as.character(y)]] <- df
   }
@@ -367,6 +670,7 @@ for (y in post2019_years) {
     df <- type_convert(df, col_types = cols(.default = col_guess()))
     if (!"srvy_yr" %in% names(df)) df$srvy_yr <- y
     df$era_post2019 <- 1L
+    df <- keep_starter_columns(df, "child")
     cat(paste0("  Child: ", nrow(df), " obs\n"))
     post2019_child_list[[as.character(y)]] <- df
   }
@@ -382,12 +686,14 @@ cat("============================================\n\n")
 
 # --- Adult ---
 cat("--- Adult file ---\n")
-adult <- bind_rows(c(pre2019_adult_list, post2019_adult_list))
+adult <- bind_rows_compatible(c(pre2019_adult_list, post2019_adult_list), "adult")
+adult <- coalesce_extra_var_families(adult, "adult")
 cat(paste0("  Combined: ", nrow(adult), " observations, ", ncol(adult), " variables\n"))
 
 # --- Child ---
 cat("--- Child file ---\n")
-child <- bind_rows(c(pre2019_child_list, post2019_child_list))
+child <- bind_rows_compatible(c(pre2019_child_list, post2019_child_list), "child")
+child <- coalesce_extra_var_families(child, "child")
 cat(paste0("  Combined: ", nrow(child), " observations, ", ncol(child), " variables\n"))
 
 # ============================================================================
@@ -400,19 +706,27 @@ cat("\nSaving combined datasets...\n")
 adult <- adult %>% arrange(srvy_yr, hhx)
 saveRDS(adult, file.path(nhis_root, "output", "nhis_adult.rds"))
 cat("Saved: output/nhis_adult.rds\n")
-tryCatch({
-  write_dta(adult, file.path(nhis_root, "output", "nhis_adult.dta"))
-  cat("Saved: output/nhis_adult.dta\n")
-}, error = function(e) cat(paste0("Could not save adult .dta: ", e$message, "\n")))
+if (write_dta_export) {
+  tryCatch({
+    write_dta(adult, file.path(out_dir, "nhis_adult_from_r.dta"))
+    cat("Saved: output/nhis_adult_from_r.dta\n")
+  }, error = function(e) cat(paste0("Could not save adult .dta: ", e$message, "\n")))
+} else {
+  cat("Skipped optional Stata export. Set write_dta_export <- TRUE to create output/nhis_adult_from_r.dta.\n")
+}
 
 # --- Child ---
 child <- child %>% arrange(srvy_yr, hhx)
 saveRDS(child, file.path(nhis_root, "output", "nhis_child.rds"))
 cat("Saved: output/nhis_child.rds\n")
-tryCatch({
-  write_dta(child, file.path(nhis_root, "output", "nhis_child.dta"))
-  cat("Saved: output/nhis_child.dta\n")
-}, error = function(e) cat(paste0("Could not save child .dta: ", e$message, "\n")))
+if (write_dta_export) {
+  tryCatch({
+    write_dta(child, file.path(out_dir, "nhis_child_from_r.dta"))
+    cat("Saved: output/nhis_child_from_r.dta\n")
+  }, error = function(e) cat(paste0("Could not save child .dta: ", e$message, "\n")))
+} else {
+  cat("Skipped optional Stata export. Set write_dta_export <- TRUE to create output/nhis_child_from_r.dta.\n")
+}
 
 # ============================================================================
 # 6. VALIDATION CHECKS
@@ -449,6 +763,9 @@ if (all(present)) {
   cat(paste0("[FAIL] Missing: ", paste(child_key[!present], collapse = ", "), "\n"))
 }
 
+report_extra_var_families(adult, "adult")
+report_extra_var_families(child, "child")
+
 n_adult_years <- length(unique(adult$srvy_yr))
 n_child_years <- length(unique(child$srvy_yr))
 cat(paste0("\n[INFO] Adult total: ", nrow(adult), " obs across ",
@@ -467,19 +784,24 @@ cat("Next step: run 02_clean_and_analyze.R\n")
 # NOTES:
 #
 # 1. PRE-2019 .DTA FILES:
-#    The .dta files for 2004-2014 were created by running CDC-provided Stata
-#    do-files on the raw fixed-width ASCII (.DAT) data. Each do-file uses
-#    `infix` to read the .DAT file and saves a .dta file. If the .dta files
-#    don't exist, run 01_load_and_append.do in Stata first (it auto-creates
-#    them from the CDC do-files).
+#    The .dta files for 2004-2018 are created or reused by the Stata loader.
+#    Some 2015-2018 components are distributed as zipped ASCII/CSV files, and
+#    the Stata loader handles extraction plus CSV fallback when needed.
 #
-# 2. EXTENDING TO 2015-2018:
-#    These years have only .zip files. To include them:
-#    a. Extract the zips in Stata and run CDC do-files to create .dta
-#    b. Then add years to pre2019_years above
-#    OR use the CSV zip alternatives (2016-2018 have xxxcsv.zip):
-#      unzip(file.path(ydir, "personsxcsv.zip"), exdir = ydir)
-#      read_csv(file.path(ydir, "personsx.csv"))
+# 2. FULL 2004-2024 R BUILDS:
+#    Full all-column R builds can exceed memory because pre-2019 files carry
+#    thousands of raw variables. For a full-year R build that feeds the starter
+#    cleaner, set these before sourcing this script:
+#      pre2019_years <- 2004:2018
+#      keep_starter_vars_only <- TRUE
+#    Use extra_vars for stable additional variable names. Use
+#    extra_var_families for aliases that changed names across years, for
+#    example:
+#      extra_var_families <- list(
+#        health_status_raw = c("phstat_a", "phstat")
+#      )
+#    Alias families merge columns by name only. They do not recode changing
+#    meanings or value systems.
 #
 # 3. VARIABLE HARMONIZATION:
 #    Variable names are renamed to match 2019+ convention (_a/_c suffix).

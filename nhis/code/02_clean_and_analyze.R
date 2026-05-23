@@ -17,7 +17,7 @@
 #
 # Input:   output/nhis_adult.rds  (from 01_load_and_append.R)
 # Output:  output/nhis_adult_clean.rds
-#          output/nhis_adult_clean.dta
+#          output/nhis_adult_clean_from_r.dta (optional)
 #
 # Author:  Austin Denteh (legacy code and Claude Code)
 # Date:    February 2026
@@ -25,18 +25,109 @@
 
 library(haven)
 library(dplyr)
-library(broom)
-library(survey)
 
 # ============================================================================
 # 1. DEFINE PATHS
 # ============================================================================
 
-nhis_root <- "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/nhis"
+# Optional manual path override. Leave as NULL for auto-detection.
+# Example:
+# nhis_root_manual <- "/Users/yourname/path/to/econ-data-starters/nhis"
+if (!exists("nhis_root_manual", inherits = TRUE)) {
+  nhis_root_manual <- NULL
+}
+
+get_current_script_dir <- function() {
+  command_args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- grep("^--file=", command_args, value = TRUE)
+  if (length(file_arg) > 0) {
+    script_path <- sub("^--file=", "", file_arg[[1]])
+    return(dirname(normalizePath(script_path, winslash = "/", mustWork = FALSE)))
+  }
+
+  frame_paths <- vapply(sys.frames(), function(frame) {
+    if (!is.null(frame$ofile)) frame$ofile else ""
+  }, character(1))
+  frame_paths <- frame_paths[nzchar(frame_paths)]
+  if (length(frame_paths) > 0) {
+    return(dirname(normalizePath(tail(frame_paths, 1), winslash = "/", mustWork = FALSE)))
+  }
+
+  ""
+}
+
+parent_paths <- function(path) {
+  if (!nzchar(path) || !dir.exists(path)) return(character())
+  path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+  paths <- path
+
+  repeat {
+    parent <- dirname(path)
+    if (identical(parent, path)) break
+    paths <- c(paths, parent)
+    path <- parent
+  }
+
+  paths
+}
+
+resolve_nhis_root <- function(script_name) {
+  env_root <- Sys.getenv("NHIS_ROOT", unset = "")
+
+  rstudio_script_dir <- ""
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    rstudio_script <- tryCatch(
+      rstudioapi::getSourceEditorContext()$path,
+      error = function(e) ""
+    )
+    if (nzchar(rstudio_script)) {
+      rstudio_script_dir <- dirname(rstudio_script)
+    }
+  }
+
+  search_roots <- c(getwd(), get_current_script_dir(), rstudio_script_dir)
+  search_paths <- unique(unlist(lapply(search_roots, parent_paths), use.names = FALSE))
+  candidates <- c(nhis_root_manual, env_root, search_paths, file.path(search_paths, "nhis"))
+  candidates <- unique(candidates[!is.na(candidates) & nzchar(candidates)])
+
+  for (path in candidates) {
+    path_norm <- normalizePath(path, winslash = "/", mustWork = FALSE)
+    if (file.exists(file.path(path_norm, "README.md")) &&
+        file.exists(file.path(path_norm, "code", script_name))) {
+      return(path_norm)
+    }
+  }
+
+  stop(
+    "Could not locate the nhis/ directory.\n",
+    "Run this script from nhis/, nhis/code/, from the repo root, ",
+    "or set nhis_root_manual / NHIS_ROOT to the nhis path.\n",
+    paste0("Current working directory: ", getwd(), "\n"),
+    'Manual override in this script: nhis_root_manual <- "/path/to/nhis"\n',
+    'Manual override before sourcing: Sys.setenv(NHIS_ROOT = "/path/to/nhis")',
+    call. = FALSE
+  )
+}
+
+nhis_root <- resolve_nhis_root("02_clean_and_analyze.R")
+cat(paste0("Using NHIS root: ", nhis_root, "\n"))
+
+out_dir <- file.path(nhis_root, "output")
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+if (!exists("run_examples", inherits = TRUE)) {
+  run_examples <- FALSE
+}
+
+# R writes compact .rds output by default. Set TRUE only if you also want a
+# Stata-format copy written by R; this can be large for NHIS.
+if (!exists("write_dta_export", inherits = TRUE)) {
+  write_dta_export <- FALSE
+}
 
 in_rds  <- file.path(nhis_root, "output", "nhis_adult.rds")
 out_rds <- file.path(nhis_root, "output", "nhis_adult_clean.rds")
-out_dta <- file.path(nhis_root, "output", "nhis_adult_clean.dta")
+out_dta <- file.path(nhis_root, "output", "nhis_adult_clean_from_r.dta")
 
 # ============================================================================
 # 2. LOAD DATA
@@ -488,12 +579,16 @@ nhis <- nhis %>% arrange(srvy_yr, hhx)
 saveRDS(nhis, out_rds)
 cat(paste0("Saved: ", out_rds, "\n"))
 
-tryCatch({
-  write_dta(nhis, out_dta)
-  cat(paste0("Saved: ", out_dta, "\n"))
-}, error = function(e) {
-  cat(paste0("Could not save .dta: ", e$message, "\n"))
-})
+if (write_dta_export) {
+  tryCatch({
+    write_dta(nhis, out_dta)
+    cat(paste0("Saved: ", out_dta, "\n"))
+  }, error = function(e) {
+    cat(paste0("Could not save .dta: ", e$message, "\n"))
+  })
+} else {
+  cat("Skipped optional Stata export. Set write_dta_export <- TRUE to create output/nhis_adult_clean_from_r.dta.\n")
+}
 
 cat(paste0("Observations: ", nrow(nhis), "\n"))
 cat(paste0("Variables: ", ncol(nhis), "\n"))
@@ -503,9 +598,10 @@ cat(paste0("Variables: ", ncol(nhis), "\n"))
 # ============================================================================
 
 cat("\n============================================\n")
-cat("   DESCRIPTIVE STATISTICS\n")
+cat("   DESCRIPTIVE STATISTICS (optional; not run by default)\n")
 cat("============================================\n\n")
 
+if (run_examples) {
 # 13a. Year distribution
 cat("--- Observations by year ---\n")
 print(as.data.frame(nhis %>% count(srvy_yr)), row.names = FALSE)
@@ -631,14 +727,25 @@ if ("income_cat" %in% names(nhis)) {
     mutate(pct = round(n / sum(n) * 100, 1))),
     row.names = FALSE)
 }
+} else {
+  cat("Set run_examples <- TRUE near the top of this script to print tables.\n")
+}
 
 # ============================================================================
 # 14. EXAMPLE REGRESSIONS
 # ============================================================================
 
 cat("\n============================================\n")
-cat("   EXAMPLE REGRESSIONS\n")
+cat("   EXAMPLE REGRESSIONS (optional; not run by default)\n")
 cat("============================================\n\n")
+
+if (run_examples) {
+if (!requireNamespace("broom", quietly = TRUE)) {
+  stop("Install the broom package or set run_examples <- FALSE.", call. = FALSE)
+}
+if (!requireNamespace("survey", quietly = TRUE)) {
+  stop("Install the survey package or set run_examples <- FALSE.", call. = FALSE)
+}
 
 # 14a. OLS: Uninsured ~ demographics (unweighted)
 cat("--- OLS: Uninsured ~ demographics (unweighted) ---\n")
@@ -646,7 +753,7 @@ if ("uninsured" %in% names(nhis)) {
   ols <- lm(uninsured ~ female + agep_a + factor(race_eth) + factor(educ_cat)
             + factor(pov_cat) + factor(srvy_yr),
             data = nhis)
-  print(tidy(ols) %>% head(15))
+  print(broom::tidy(ols) %>% head(15))
 }
 
 # 14b. Weighted OLS
@@ -655,18 +762,21 @@ if ("uninsured" %in% names(nhis)) {
   wols <- lm(uninsured ~ female + agep_a + factor(race_eth) + factor(educ_cat)
              + factor(pov_cat) + factor(srvy_yr),
              data = nhis, weights = wtfa_adj)
-  print(tidy(wols) %>% head(15))
+  print(broom::tidy(wols) %>% head(15))
 }
 
 # 14c. Survey-weighted: Fair/poor health ~ demographics
 cat("\n--- Survey-weighted: Fair/poor health ~ demographics ---\n")
 if (all(c("fair_poor_health", "pstrat", "ppsu") %in% names(nhis))) {
-  des <- svydesign(ids = ~ppsu, strata = ~pstrat,
-                   weights = ~wtfa_adj, data = nhis, nest = TRUE)
-  svy_reg <- svyglm(fair_poor_health ~ female + agep_a + factor(race_eth)
-                     + factor(pov_cat),
-                     design = des, family = quasibinomial())
-  print(tidy(svy_reg) %>% head(12))
+  des <- survey::svydesign(ids = ~ppsu, strata = ~pstrat,
+                           weights = ~wtfa_adj, data = nhis, nest = TRUE)
+  svy_reg <- survey::svyglm(fair_poor_health ~ female + agep_a + factor(race_eth)
+                            + factor(pov_cat),
+                            design = des, family = quasibinomial())
+  print(broom::tidy(svy_reg) %>% head(12))
+}
+} else {
+  cat("Set run_examples <- TRUE near the top of this script to run examples.\n")
 }
 
 cat("\n============================================\n")

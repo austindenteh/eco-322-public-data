@@ -1,6 +1,8 @@
-# ECO 322: Public Data Starter Repositories
+# Econ Data Starters
 
-Starter code (Stata + R) and documentation for publicly available datasets used in health economics research at Davidson College.
+Starter code (Stata + R) and documentation for publicly available datasets used in economics, health policy, and applied microeconomics research.
+
+These materials are intended as lightweight starting points for anyone building reproducible Stata or R workflows with common public datasets.
 
 > **📥 Data files are too large for GitHub.** Each dataset README links to a shared Dropbox folder where you can download the raw data.
 

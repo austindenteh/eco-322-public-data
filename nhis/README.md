@@ -21,9 +21,11 @@ The National Health Interview Survey (NHIS) is an annual household interview sur
 - **Complex survey design** with weights, strata, and PSUs
 
 **What the starter scripts produce:**
-- `nhis_adult.dta` / `.rds` — Combined sample adult file (default: 2019–2024)
-- `nhis_child.dta` / `.rds` — Combined sample child file (default: 2019–2024)
-- `nhis_adult_clean.dta` / `.rds` — Cleaned adult file with harmonized variables
+- `nhis_adult.dta` / `nhis_child.dta` — Combined adult and child files from the Stata loader
+- `nhis_adult.rds` / `nhis_child.rds` — Combined adult and child files from the R loader
+- `nhis_adult_clean.dta` — Cleaned adult file from the Stata cleaner
+- `nhis_adult_clean.rds` — Cleaned adult file from the R cleaner
+- Optional R-created Stata exports use `_from_r.dta` suffixes so they do not overwrite Stata outputs
 
 ### Data Source
 
@@ -95,6 +97,8 @@ nhis/
 ├── code/
 │   ├── 01_load_and_append.do    ← Full data build pipeline (Stata)
 │   ├── 01_load_and_append.R     ← Same in R
+│   ├── 01_load_and_append_optional_low_memory.do ← Optional low-memory Stata entry point
+│   ├── 01_load_and_append_optional_low_memory.R  ← Optional low-memory R entry point
 │   ├── 02_clean_and_analyze.do  ← Clean variables, descriptive stats (Stata)
 │   └── 02_clean_and_analyze.R   ← Same in R
 ├── data/
@@ -114,8 +118,11 @@ nhis/
 │   └── NHIS_2024_child_codebook.pdf
 └── output/                      ← Cleaned datasets (created by scripts)
     ├── nhis_adult.dta           ← Combined raw adult file
+    ├── nhis_adult.rds           ← Combined raw adult file from R
     ├── nhis_child.dta           ← Combined raw child file
-    └── nhis_adult_clean.dta     ← Cleaned adult file
+    ├── nhis_child.rds           ← Combined raw child file from R
+    ├── nhis_adult_clean.dta     ← Cleaned adult file from Stata
+    └── nhis_adult_clean.rds     ← Cleaned adult file from R
 ```
 
 ---
@@ -134,7 +141,7 @@ https://www.dropbox.com/scl/fo/oxcdw665ng3q39d11r5yf/ABOW0em1n3G2nsnt4ddrvIY?rlk
 |---|---|---|---|
 | **2019–2024** | `NHIS 2019/` through `NHIS 2024/` | ~200 MB total | **Start here** — simple CSV files, no special setup |
 | 2004–2014 | `NHIS 2004/` through `NHIS 2014/` | ~5 GB total | Pre-redesign era — requires CDC do-files to build `.dta` |
-| 2015–2018 | `NHIS 2015/` through `NHIS 2018/` | ~1 GB total | Needs extra extraction steps — see EXTENDING section |
+| 2015–2018 | `NHIS 2015/` through `NHIS 2018/` | ~1 GB total | Pre-redesign era — scripts extract archives or use CSV fallback when needed |
 
 Place each year folder in `data/`. The starter scripts auto-detect which years are present and process only those.
 
@@ -158,19 +165,59 @@ do code/01_load_and_append.do
 source("code/01_load_and_append.R")
 ```
 
+The scripts can be run from `nhis/`, `nhis/code/`, or the repo root. If automatic path detection fails, set the dataset root explicitly:
+
+```stata
+global nhis_root "/path/to/nhis"
+do "$nhis_root/code/01_load_and_append.do"
+```
+
+```r
+nhis_root_manual <- "/path/to/nhis"
+source(file.path(nhis_root_manual, "code", "01_load_and_append.R"))
+
+# Or before sourcing:
+Sys.setenv(NHIS_ROOT = "/path/to/nhis")
+```
+
 This script performs the **full data build pipeline.**
 
 **Default (2019–2024 only):** Unzips and imports CSV files — fast and simple, no special setup needed.
 
-**With pre-2019 years enabled:** Also runs CDC do-files to create `.dta` from raw ASCII (skips if `.dta` already exists), merges the 5-file hierarchical structure (personsx + familyxx + househld + samadult/samchild), and harmonizes variable names. To include pre-2019 years, uncomment and edit the `pre2019_years` line in the script.
+**With pre-2019 years enabled:** The Stata loader creates or reuses component `.dta` files, merges the 5-file hierarchical structure (personsx + familyxx + househld + samadult/samchild), and harmonizes variable names. For 2015–2018, it extracts archives and uses CSV fallback when fixed-width ASCII is absent or CDC do-files assume Windows-only paths. To include pre-2019 years, set or edit the `pre2019_years` settings in the script.
 
 The script auto-detects which year folders are present in `data/` and skips any missing years, so you only need to download the years you want to analyze.
 
 **Output:**
-- `output/nhis_adult.dta` / `.rds` — Combined sample adult file
-- `output/nhis_child.dta` / `.rds` — Combined sample child file
+- `output/nhis_adult.dta` / `output/nhis_child.dta` — Stata combined files
+- `output/nhis_adult.rds` / `output/nhis_child.rds` — R combined files
+- `output/nhis_adult_from_r.dta` / `output/nhis_child_from_r.dta` — optional R-created Stata exports if `write_dta_export <- TRUE`
 
-**Note on R:** The R script requires that `.dta` files already exist for pre-2019 years (since CDC do-files are Stata programs). Run the Stata script first to create the `.dta` files, then the R script can load them. For 2019–2024 only (the default), the R script works standalone.
+**Note on R:** The R script requires that `.dta` files already exist for pre-2019 years (since CDC do-files are Stata programs). Run the Stata script first to create the `.dta` files, then the R script can load them. For 2019–2024 only (the default), the R script works standalone. R writes compact `.rds` files by default; set `write_dta_export <- TRUE` only if you also need R-created Stata files.
+
+**Full 2004–2024 adult build:**
+
+Stata is the all-column full-build path:
+
+```stata
+global nhis_pre2019_years "2004 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2017 2018"
+global nhis_post2019_years "2019 2020 2021 2022 2023 2024"
+do code/01_load_and_append.do
+```
+
+For lower-memory full-year builds, use the optional low-memory entry point. It keeps the starter variables needed by the cleaner plus any user-requested extras:
+
+```stata
+global nhis_pre2019_years "2004 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2017 2018"
+global nhis_post2019_years "2019 2020 2021 2022 2023 2024"
+do code/01_load_and_append_optional_low_memory.do
+```
+
+```r
+source("code/01_load_and_append_optional_low_memory.R")
+```
+
+With the current shared files, both the adult and child files cover 2004–2024 when all years are enabled.
 
 ### Step 3: Clean and Analyze
 
@@ -184,10 +231,53 @@ do code/02_clean_and_analyze.do
 source("code/02_clean_and_analyze.R")
 ```
 
-Creates harmonized cleaned variables across all years using era-aware logic, produces descriptive statistics broken out by era, and runs example regressions. Saves cleaned dataset to `output/`.
+Creates harmonized cleaned variables across all years using era-aware logic and saves the cleaned adult dataset to `output/`. The descriptive tables and example regressions are kept in the scripts as optional teaching blocks but do not run by default. Set `run_examples <- TRUE` in R, or `local run_examples 1` in Stata, to print the examples.
 
 **Output:**
-- `output/nhis_adult_clean.dta` / `.rds` — Cleaned adult file with harmonized variables
+- `output/nhis_adult_clean.dta` — Cleaned adult file from Stata
+- `output/nhis_adult_clean.rds` — Cleaned adult file from R
+- `output/nhis_adult_clean_from_r.dta` — optional R-created Stata export if `write_dta_export <- TRUE`
+
+### Memory and File-Size Notes
+
+The default workflow is already the teaching-friendly, lower-memory NHIS path: it loads only the redesigned 2019–2024 CSV files and writes compact RDS files in R. For a full 2004–2024 build with pre-2019 years, use `code/01_load_and_append_optional_low_memory.R` or `code/01_load_and_append_optional_low_memory.do`. These wrappers keep the variables needed by the starter cleaner, plus any names listed in `extra_vars` / `nhis_extra_keep_vars`.
+
+Use `extra_vars` in R for additional variables with stable names after NHIS harmonization:
+
+```r
+pre2019_years <- 2004:2018
+post2019_years <- 2019:2024
+extra_vars <- c("regionbr_a", "plborn_a")
+source("code/01_load_and_append_optional_low_memory.R")
+```
+
+Use `nhis_extra_keep_vars` in Stata for the same stable-name case:
+
+```stata
+global nhis_extra_keep_vars "regionbr_a plborn_a"
+do code/01_load_and_append_optional_low_memory.do
+```
+
+Use `extra_var_families` when the same concept appears under different raw names across years. Each named entry keeps all listed aliases during the low-memory load and then coalesces them into one column:
+
+```r
+pre2019_years <- 2004:2018
+post2019_years <- 2019:2024
+extra_var_families <- list(
+  health_status_raw = c("phstat_a", "phstat")
+)
+source("code/01_load_and_append_optional_low_memory.R")
+```
+
+```stata
+global nhis_extra_var_families ///
+    `" "health_status_raw:phstat_a phstat_c phstat" "'
+do code/01_load_and_append_optional_low_memory.do
+```
+
+Alias families merge columns by name only. If the coding or meaning changes across NHIS eras, harmonize that added variable in `02_clean_and_analyze.R` or in your analysis code.
+
+The large files are the Stata-format outputs. A full 2004–2024 all-column Stata adult file and cleaned adult file are each several GB. The R scripts skip `.dta` export by default and, when requested, write `_from_r.dta` files so R outputs do not collide with Stata outputs. For long pre-2019 builds, start with a small `pre2019_years` list and add years incrementally.
 
 ---
 
@@ -410,14 +500,13 @@ The cleaning scripts recode to `1`/`0` binary and treat all other values as miss
 | Year Range | File Structure | Raw Format | Status in This Repo |
 |---|---|---|---|
 | 2004–2014 | 5-file hierarchical | `.DAT` → `.dta` (via CDC do-files) | Ready: `.dta` files available (or auto-created) |
-| 2015–2018 | 5-file hierarchical | `.zip` archives | Needs extraction — see EXTENDING section in script |
+| 2015–2018 | 5-file hierarchical | `.zip` archives / CSV alternatives | Ready for adult builds: Stata extracts archives and uses CSV fallback as needed |
 | 2019–2024 | 2-file flat | `.csv` in `.zip` | Ready: scripts auto-unzip |
 
-**Default coverage:** The starter scripts process **2019–2024** by default (post-redesign, simple CSV files). To include pre-2019 years, uncomment the `pre2019_years` line in the load script. Years 2015–2018 require additional extraction — see the EXTENDING section at the end of `01_load_and_append.do`.
+**Default coverage:** The starter scripts process **2019–2024** by default (post-redesign, simple CSV files). To include pre-2019 adult years, set `pre2019_years <- 2004:2018` in R after running the Stata loader once, or set `global nhis_pre2019_years "2004 ... 2018"` in Stata.
 
-**Known missing files:**
-- 2015: `samchild.zip` is missing (does not affect adult analysis)
-- 2017: `familyxx.zip` (fixed-width) is missing; use `familyxxcsv.zip` with `import delimited`
+**Special file note:**
+- 2017: `familyxx.zip` (fixed-width) is missing; the Stata loader uses `familyxxcsv.zip` as fallback
 
 ### Special Years
 
@@ -429,7 +518,7 @@ The cleaning scripts recode to `1`/`0` binary and treat all other values as miss
 
 ### Child File
 
-The starter scripts produce a combined child file (`nhis_child.dta`) alongside the adult file. The child file is built the same way — merging personsx + familyxx + househld + samchild for pre-2019, and importing child CSVs for post-2019.
+The starter scripts produce a combined child file (`nhis_child.dta`) alongside the adult file. The child file is built the same way — merging personsx + familyxx + househld + samchild for pre-2019, and importing child CSVs for post-2019. With the current shared files, child coverage is 2004–2024 when all years are enabled.
 
 The cleaning script (`02_clean_and_analyze`) focuses on the adult file. To clean the child file, adapt the script using:
 - Input: `output/nhis_child.dta` / `.rds`

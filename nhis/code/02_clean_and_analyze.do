@@ -29,12 +29,41 @@ set maxvar 32767
 * ============================================================================
 * 1. DEFINE PATHS
 * ============================================================================
+* Auto-detect the dataset root from global nhis_root, the dataset folder,
+* code/, or the repo root.
+*
+* Optional manual path override. Uncomment and edit if auto-detection fails:
+* global nhis_root "/Users/yourname/path/to/econ-data-starters/nhis"
+* Then run: do "$nhis_root/code/02_clean_and_analyze.do"
 
-global nhis_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/nhis"
+local cwd "`c(pwd)'"
+if "$nhis_root" != "" & fileexists("$nhis_root/code/02_clean_and_analyze.do") {
+    global nhis_root "$nhis_root"
+}
+else if fileexists("code/02_clean_and_analyze.do") & fileexists("README.md") {
+    global nhis_root "`cwd'"
+}
+else if fileexists("02_clean_and_analyze.do") & fileexists("../README.md") {
+    global nhis_root "`cwd'/.."
+}
+else if fileexists("nhis/code/02_clean_and_analyze.do") & fileexists("nhis/README.md") {
+    global nhis_root "`cwd'/nhis"
+}
+else {
+    display as error "Could not locate the nhis/ directory."
+    display as error "Run from nhis/, nhis/code/, from the repo root, or set global nhis_root."
+    display as error `"Manual override: global nhis_root "/path/to/nhis""'
+    error 601
+}
+
 cd "$nhis_root"
+capture mkdir "output"
 
 local in_dta  "output/nhis_adult.dta"
 local out_dta "output/nhis_adult_clean.dta"
+
+* Public starter scripts keep examples visible but off by default.
+local run_examples 0
 
 * ============================================================================
 * 2. LOAD DATA
@@ -76,7 +105,9 @@ display as text "   CLEANING DEMOGRAPHICS"
 display as text "============================================"
 
 * --- Sex ---
-gen female = (sex_a == 2) if !missing(sex_a)
+gen female = .
+replace female = 1 if sex_a == 2
+replace female = 0 if sex_a == 1
 label var female "Female indicator (1=Female, 0=Male)"
 
 * --- Age categories ---
@@ -108,8 +139,8 @@ replace race_eth = 2 if raceallp_a == 2 & hisp_a == 2
 replace race_eth = 4 if raceallp_a == 4 & hisp_a == 2 & era_post2019 == 1
 replace race_eth = 4 if inrange(raceallp_a, 4, 14) & hisp_a == 2 & era_post2019 == 0
 
-* Other NH — everything else
-replace race_eth = 5 if !inlist(race_eth, 1, 2, 3, 4) & !missing(raceallp_a) & !missing(hisp_a)
+* Other NH — valid non-Hispanic observations not already classified above
+replace race_eth = 5 if !inlist(race_eth, 1, 2, 3, 4) & !missing(raceallp_a) & hisp_a == 2
 
 label define race_eth 1 "White NH" 2 "Black NH" 3 "Hispanic" ///
                       4 "Asian NH" 5 "Other NH"
@@ -477,9 +508,10 @@ display as text "Variables: " c(k)
 * ============================================================================
 
 display as text _newline "============================================"
-display as text "   DESCRIPTIVE STATISTICS"
+display as text "   DESCRIPTIVE STATISTICS (optional; not run by default)"
 display as text "============================================"
 
+if `run_examples' {
 * 13a. Year distribution
 tab srvy_yr
 
@@ -524,15 +556,20 @@ capture summarize below_poverty low_income
 capture tab income_cat
 capture tab pov_cat if era_post2019 == 0, missing
 capture tab pov_cat if era_post2019 == 1, missing
+}
+else {
+    display as text "Set local run_examples 1 near the top of this script to print tables."
+}
 
 * ============================================================================
 * 14. EXAMPLE REGRESSIONS
 * ============================================================================
 
 display as text _newline "============================================"
-display as text "   EXAMPLE REGRESSIONS"
+display as text "   EXAMPLE REGRESSIONS (optional; not run by default)"
 display as text "============================================"
 
+if `run_examples' {
 * 14a. OLS: Uninsured ~ demographics (unweighted)
 display as text _newline "--- OLS: Uninsured ~ demographics (unweighted) ---"
 capture reg uninsured female agep_a i.race_eth i.educ_cat i.srvy_yr
@@ -544,6 +581,10 @@ capture reg uninsured female agep_a i.race_eth i.educ_cat i.pov_cat i.srvy_yr [p
 * 14c. Survey-weighted: Fair/poor health ~ demographics
 display as text _newline "--- Svy: Fair/poor health ~ demographics ---"
 capture svy: reg fair_poor_health female agep_a i.race_eth i.educ_cat i.pov_cat i.srvy_yr
+}
+else {
+    display as text "Set local run_examples 1 near the top of this script to run examples."
+}
 
 display as text _newline "============================================"
 display as text "   DONE"
