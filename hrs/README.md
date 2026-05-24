@@ -1,153 +1,213 @@
-# RAND HRS Longitudinal File — Starter Data Repository
+# RAND HRS Longitudinal File - Starter Data Repository
 
-> **📥 Data download required.** The raw data file (~1.7 GB) is too large for GitHub. Download it from the [shared Dropbox folder](https://www.dropbox.com/scl/fo/85981elavqjxsgnab303u/AEB68Dy0fLN8Qn97Z6JjwE8?rlkey=2xci5kuc5its8x2p9yx297kz2&st=ydig5d7s&dl=0) and place it in `data/raw/`. See [How to Obtain the Data](#how-to-obtain-the-data) for details.
+> Data download required. The raw RAND HRS file is too large for GitHub. Download `randhrs1992_2022v1.dta` and place it in `hrs/data/raw/`.
 
 ## Overview
 
-The **Health and Retirement Study (HRS)** is a longitudinal household survey conducted by the Institute for Social Research at the University of Michigan, with funding from the National Institute on Aging (NIA) and the Social Security Administration (SSA). The HRS surveys a nationally representative sample of approximately 20,000 Americans aged 50 and older, collecting data biennially on demographics, income, assets, health, health insurance, cognition, family structure, retirement plans, expectations, and employment history.
+The Health and Retirement Study (HRS) is a longitudinal household survey conducted by the University of Michigan's Institute for Social Research, with funding from the National Institute on Aging and the Social Security Administration. The HRS follows older adults and their households over time and includes demographics, income, assets, health, insurance, cognition, family structure, retirement plans, expectations, and employment history.
 
-The **RAND HRS Longitudinal File** is a cleaned, easy-to-use, and streamlined version of the HRS data produced by the RAND Center for the Study of Aging. It contains derived variables covering a large range of topics, with consistent naming and coding across all survey waves.
-
-**This repository** contains starter code (in both Stata and R) to help users quickly load, reshape, and begin cleaning the RAND HRS data for their own analysis.
-
----
+This folder uses the RAND HRS Longitudinal File 2022 (V1), a cleaned and harmonized public-use HRS extract produced by the RAND Center for the Study of Aging. The starter scripts help users reshape the RAND file from wide to long format and create a compact set of analysis-ready demographic variables.
 
 ## Data Version
 
 | Item | Detail |
 |---|---|
-| **File** | RAND HRS Longitudinal File 2022 (V1) |
-| **Coverage** | 1992--2022 (16 waves) |
-| **Observations** | 45,234 respondents |
-| **Release date** | May 2025 |
-| **Format used** | Stata (.dta) |
-
----
+| File | RAND HRS Longitudinal File 2022 (V1) |
+| Coverage | 1992-2022 (16 waves) |
+| Observations | 45,234 respondents |
+| Release date | May 2025 |
+| Format used | Stata `.dta` |
 
 ## How to Obtain the Data
 
-The raw RAND HRS data file is too large (~1.7 GB) to include in this repository. You must download it separately.
+The raw RAND HRS data file is too large to include in this repository.
 
-**Option A — Dropbox (recommended):**
-Download the data file from the shared folder:
-https://www.dropbox.com/scl/fo/85981elavqjxsgnab303u/AEB68Dy0fLN8Qn97Z6JjwE8?rlkey=2xci5kuc5its8x2p9yx297kz2&st=ydig5d7s&dl=0
+Option A: Download the file from the shared Dropbox folder: <https://www.dropbox.com/scl/fo/85981elavqjxsgnab303u/AEB68Dy0fLN8Qn97Z6JjwE8?rlkey=2xci5kuc5its8x2p9yx297kz2&st=ydig5d7s&dl=0>. Place `randhrs1992_2022v1.dta` in `hrs/data/raw/`.
 
-Place `randhrs1992_2022v1.dta` in `data/raw/`.
+Option B: Download directly from the HRS website:
 
-**Option B — HRS website:**
 1. Go to the HRS data products page: <https://hrsdata.isr.umich.edu/data-products/rand-hrs-longitudinal-file-2022>
-2. Register for an account (free) and agree to the Conditions of Use
-3. Download the **Stata** version of the RAND HRS Longitudinal File 2022 (V1)
-4. Place the file `randhrs1992_2022v1.dta` in `data/raw/`
+2. Register for an account and agree to the Conditions of Use.
+3. Download the Stata version of the RAND HRS Longitudinal File 2022 (V1).
+4. Place `randhrs1992_2022v1.dta` in `hrs/data/raw/`.
 
-The codebook PDF (`randhrs1992_2022v1.pdf`) is included in `data/raw/` for reference.
-
----
+The codebook PDF, if downloaded, can also be placed in `hrs/data/raw/` for reference.
 
 ## Citation Instructions
 
-When using these data, please cite both the HRS and the RAND file:
+When using these data, cite both the HRS and the RAND file:
 
-> Health and Retirement Study, (RAND HRS Longitudinal File 2022 (V1)) public use dataset. Produced and distributed by the University of Michigan with funding from the National Institute on Aging (grant numbers NIA U01AG009740 and NIA R01AG073289). Ann Arbor, MI, (May 2025).
+> Health and Retirement Study, RAND HRS Longitudinal File 2022 (V1) public use dataset. Produced and distributed by the University of Michigan with funding from the National Institute on Aging (grant numbers NIA U01AG009740 and NIA R01AG073289). Ann Arbor, MI, May 2025.
 
-> RAND HRS Longitudinal File 2022 (V1). Produced by the RAND Center for the Study of Aging, with funding from the National Institute on Aging and the Social Security Administration. Santa Monica, CA (May 2025).
-
-In the text of your paper, please include:
-
-> The HRS (Health and Retirement Study) is sponsored by the National Institute on Aging (grant numbers NIA U01AG009740 and NIA R01AG073289) and is conducted by the University of Michigan.
-
----
+> RAND HRS Longitudinal File 2022 (V1). Produced by the RAND Center for the Study of Aging, with funding from the National Institute on Aging and the Social Security Administration. Santa Monica, CA, May 2025.
 
 ## Repository Structure
 
-```
+```text
 hrs/
-├── README.md                         # This file
-├── code/
-│   ├── 01_reshape_and_save.do        # Stata: load wide data, reshape to long, save
-│   ├── 01_reshape_and_save.R         # R: load wide data, reshape to long, save
-│   ├── 02_clean_demographics.do      # Stata: clean demographics, descriptive stats, simple regression
-│   └── 02_clean_demographics.R       # R: clean demographics, descriptive stats, simple regression
-├── data/
-│   └── raw/                          # Place downloaded .dta file here
-│       ├── randhrs1992_2022v1.dta    # (user must download)
-│       └── randhrs1992_2022v1.pdf    # Codebook
-├── output/                           # Cleaned datasets saved here by the scripts
-└── docs/
-    └── data_preparation_instructions_HRS.docx
+|-- README.md
+|-- code/
+|   |-- 01_reshape_and_save.do
+|   |-- 01_reshape_and_save.R
+|   |-- 01_reshape_and_save_optional_low_memory.do
+|   |-- 01_reshape_and_save_optional_low_memory.R
+|   |-- 02_clean_demographics.do
+|   `-- 02_clean_demographics.R
+|-- data/
+|   `-- raw/
+|       |-- randhrs1992_2022v1.dta
+|       `-- randhrs1992_2022v1.pdf
+|-- output/
+`-- docs/
 ```
 
----
+## Running the Starter Scripts
 
-## What the Starter Scripts Do
+### 1. Reshape Wide RAND HRS to Long Format
 
-### Script 1: `01_reshape_and_save` (Stata `.do` / R `.R`)
+Full build:
 
-**Purpose:** Load the raw RAND HRS file (wide format), reshape **all** wave-varying variables from wide to long panel format, and save.
+```r
+source("code/01_reshape_and_save.R")
+```
 
-The raw RAND HRS file is distributed in **wide format**: one row per respondent, with wave-prefixed variables (e.g., `R1SHLT`, `R2SHLT`, ..., `R16SHLT`). Most panel analyses require **long format**: one row per respondent-wave.
+```stata
+do code/01_reshape_and_save.do
+```
 
-**All wave-varying variables are reshaped.** The scripts programmatically discover every variable following the `[R/S/H][wave][concept]` naming convention and reshape them all at once. This means you get the full dataset in long format — health, cognition, finances, employment, insurance, pensions, and more — without having to manually specify which variables to include. Time-invariant variables (e.g., `RAGENDER`, `RABYEAR`, `HACOHORT`) are carried along automatically.
+The full build reshapes every R/H/S wave-prefixed variable, the `INW` interview indicators, and selected suffix-numbered death/admin variables. It is useful when you want broad access to the RAND file, but it can require substantial RAM and disk space.
 
-Here are some of the key variable categories available after reshaping:
+Outputs:
 
-| Category | Example Variables | Description |
-|---|---|---|
-| Identifiers | `HHIDPN`, `HHID`, `PN`, `HACOHORT` | Person/household ID, entry cohort |
-| Demographics (time-invariant) | `RAGENDER`, `RABYEAR`, `RAEDUC`, `RARACEM`, `RAHISPAN` | Gender, birth year, education, race, Hispanic |
-| Interview status | `RwIWSTAT`, `INW` | Whether respondent was interviewed in wave w |
-| Health | `RwSHLT`, `RwCESD`, `RwBMI`, `RwCONDE` | Self-rated health, depression (CES-D 0--8), BMI, condition count |
-| Health utilization | `RwHOSP`, `RwNHMLIV`, `RwTOTMBF` | Hospitalization, nursing home, medical expenses |
-| Functional limitations | `RwADL5A`, `RwIADL5A`, `RwMOBILA` | ADLs, IADLs, mobility index |
-| Cognition | `RwCOGTOT`, `RwTR20` | Total cognition score, word recall |
-| Labor/retirement | `RwLBRF`, `RwWORK`, `RwJLTEN` | Labor force status, working, job tenure |
-| Demographics (time-varying) | `RwAGEY_B`, `RwMSTAT` | Age at interview, marital status |
-| Household finances | `HwITOT`, `HwATOTA`, `HwAHOUS` | Total income, total assets, housing assets |
-| Health insurance | `RwCOVRT`, `RwHICOV` | Coverage type, any coverage |
-| Weights | `RwWTRESP` | Respondent-level weight |
-| Spouse variables | `SwSHLT`, `SwCESD`, `SwLBRF`, ... | Spouse equivalents of R-variables |
+- R: `output/hrs_long.rds`
+- Stata: `output/hrs_long.dta`
+- Stata CSV export: `output/hrs_long.csv`
+- Optional R exports: `output/hrs_long_from_r.dta`, `output/hrs_long_from_r.csv`
 
-Consult the codebook (`data/raw/randhrs1992_2022v1.pdf`) for the full list of variables.
+The R loader writes only `.rds` by default to avoid accidentally creating multi-gigabyte duplicate files. Set `write_dta_export <- TRUE` or `write_csv_export <- TRUE` before sourcing if you need those optional R exports.
 
-**Output:** Saves the long-format panel dataset as:
-- `output/hrs_long.dta` (Stata)
-- `output/hrs_long.csv` (CSV)
-- `output/hrs_long.rds` (R only)
+### 2. Low-Memory Reshape
 
-### Script 2: `02_clean_demographics` (Stata `.do` / R `.R`)
+Low-memory build:
 
-**Purpose:** Load the reshaped long data and demonstrate how to:
-1. Clean and create analysis-ready demographic variables
-2. Handle HRS missing value codes
-3. Produce descriptive statistics
-4. Run a simple regression
+```r
+source("code/01_reshape_and_save_optional_low_memory.R")
+```
 
----
+```stata
+do code/01_reshape_and_save_optional_low_memory.do
+```
+
+The standalone low-memory scripts keep the starter variables needed by `02_clean_demographics` plus any extras you request. In R, the loader uses `haven::read_dta(col_select = ...)` so it does not import every raw column. In Stata, the loader uses `use varlist using ...` so it also reads only selected raw columns.
+
+Select waves/years and add variables before running the low-memory script. Leave `hrs_waves` and `hrs_years` unset/`NULL` to keep all 16 waves.
+
+```r
+hrs_years <- c(2018, 2020, 2022)      # or hrs_waves <- c(14, 15, 16)
+extra_time_invariant_vars <- c("raedyrs")
+extra_wave_stubs <- c("rcovrt", "scovrt")
+source("code/01_reshape_and_save_optional_low_memory.R")
+```
+
+```stata
+global hrs_years "2018 2020 2022"   // or global hrs_waves "14 15 16"
+global hrs_extra_time_invariant_vars "raedyrs"
+global hrs_extra_wave_stubs "rcovrt scovrt"
+do code/01_reshape_and_save_optional_low_memory.do
+```
+
+Use long-format stub names for wave-varying extras. The loader expands each stub only for the selected waves:
+
+- `rcovrt` loads `r1covrt` through `r16covrt`
+- `scovrt` loads `s1covrt` through `s16covrt`
+- `hitot` loads `h1itot` through `h16itot`
+- `radtype` loads `radtype1` through `radtype16` when those wave-specific variables exist
+- `inw` loads `inw1` through `inw16`
+
+### 3. Clean Demographics
+
+```r
+source("code/02_clean_demographics.R")
+```
+
+```stata
+do code/02_clean_demographics.do
+```
+
+Outputs:
+
+- R: `output/hrs_demographics_clean.rds`
+- Stata: `output/hrs_demographics_clean.dta`
+- Optional R export: `output/hrs_demographics_clean_from_r.dta`
+
+The cleaners create:
+
+- `female`
+- `educ_cat`
+- `race_eth`
+- `marital`
+- `cohort_label` in R, and value labels for `hacohort` in Stata
+- `total_waves`
+
+Example tables and regression examples are available but off by default. To run them:
+
+```r
+run_examples <- TRUE
+source("code/02_clean_demographics.R")
+```
+
+```stata
+global hrs_run_examples 1
+do code/02_clean_demographics.do
+```
+
+## Path Overrides
+
+All scripts auto-detect the `hrs/` folder when run from `hrs/`, `hrs/code/`, or the repo root.
+
+Manual R override:
+
+```r
+hrs_root_manual <- "/path/to/econ-data-starters/hrs"
+source("/path/to/econ-data-starters/hrs/code/01_reshape_and_save.R")
+```
+
+or:
+
+```r
+Sys.setenv(HRS_ROOT = "/path/to/econ-data-starters/hrs")
+source("/path/to/econ-data-starters/hrs/code/01_reshape_and_save.R")
+```
+
+Manual Stata override:
+
+```stata
+global hrs_root "/path/to/econ-data-starters/hrs"
+do "$hrs_root/code/01_reshape_and_save.do"
+```
 
 ## Understanding the RAND HRS Data
 
 ### Entry Cohorts
 
-The HRS consists of eight entry cohorts. Not all cohorts are present in all waves:
-
 | Cohort | `HACOHORT` | Birth Years | First Interviewed | Waves Available |
-|---|---|---|---|---|
-| Initial HRS | 3 | 1931--1941 | 1992 (Wave 1) | 1--16 |
-| AHEAD | 0, 1 | Before 1924 | 1993 (Wave 2A) | 2--16 |
-| CODA | 2 | 1924--1930 | 1998 (Wave 4) | 4--16 |
-| War Baby | 4 | 1942--1947 | 1998 (Wave 4) | 4--16 |
-| Early Baby Boomer | 5 | 1948--1953 | 2004 (Wave 7) | 7--16 |
-| Mid Baby Boomer | 6 | 1954--1959 | 2010 (Wave 10) | 10--16 |
-| Late Baby Boomer | 7 | 1960--1965 | 2016 (Wave 13) | 13--16 |
-| Early Gen X | 8 | 1966--1971 | 2022 (Wave 16) | 16 |
+|---|---:|---|---|---|
+| Initial HRS | 3 | 1931-1941 | 1992 | 1-16 |
+| AHEAD | 0, 1 | Before 1924 | 1993 | 2-16 |
+| CODA | 2 | 1924-1930 | 1998 | 4-16 |
+| War Baby | 4 | 1942-1947 | 1998 | 4-16 |
+| Early Baby Boomer | 5 | 1948-1953 | 2004 | 7-16 |
+| Mid Baby Boomer | 6 | 1954-1959 | 2010 | 10-16 |
+| Late Baby Boomer | 7 | 1960-1965 | 2016 | 13-16 |
+| Early Gen X | 8 | 1966-1971 | 2022 | 16 |
 
 ### Wave-to-Year Mapping
 
-| Wave | Year(s) |
-|---|---|
+| Wave | Year |
+|---:|---:|
 | 1 | 1992 |
-| 2 | 1993/1994 |
-| 3 | 1995/1996 |
+| 2 | 1994 |
+| 3 | 1996 |
 | 4 | 1998 |
 | 5 | 2000 |
 | 6 | 2002 |
@@ -162,29 +222,31 @@ The HRS consists of eight entry cohorts. Not all cohorts are present in all wave
 | 15 | 2020 |
 | 16 | 2022 |
 
-Note: Waves 1--3 have different survey years for HRS vs. AHEAD cohorts. From Wave 4 (1998) onward, all cohorts are surveyed together.
+Waves 1-3 have different survey years for HRS versus AHEAD cohorts. The scripts use the main HRS wave-year mapping above.
 
-### Variable Naming Conventions
+### Variable Naming
 
-Variable names follow a consistent pattern:
+RAND HRS variables generally follow this pattern:
 
-```
+```text
 [Prefix][Wave][Concept]
 
-  R  2  SHLT
-  │  │   │
-  │  │   └── Self-rated health
-  │  └────── Wave 2 (1993/1994)
-  └───────── Respondent
+R  2  SHLT
+|  |  |
+|  |  Self-rated health
+|  Wave 2
+Respondent
 ```
 
-- **R** = Respondent, **S** = Spouse, **H** = Household
-- Wave number: 1--16 (single or double digit)
-- **RA** prefix = time-invariant respondent attributes (e.g., `RAGENDER`, `RABYEAR`)
+- `R` = respondent
+- `S` = spouse
+- `H` = household
+- `RA` and `HA` prefixes usually identify time-invariant attributes
+- Some death/admin variables use suffix wave numbering, such as `radtype1`, `radtype2`, and so on
 
 ### Missing Value Codes
 
-The RAND HRS uses Stata extended missing values to distinguish reasons for missing data:
+The RAND HRS uses Stata extended missing values to distinguish missing reasons:
 
 | Code | Meaning |
 |---|---|
@@ -193,53 +255,29 @@ The RAND HRS uses Stata extended missing values to distinguish reasons for missi
 | `.R` | Refused |
 | `.X` | Does not apply |
 | `.Q` | Question not asked |
-| `.U` | Unmarried (for spouse variables) |
+| `.U` | Unmarried, for spouse variables |
 | `.V` | Spouse did not respond this wave |
-| `.S` | Skip pattern (proxy interview) |
+| `.S` | Skip pattern or proxy context |
 | `.M` | Other missing |
-| `.N` | Not applicable (context-specific) |
+| `.N` | Not applicable |
 
-**Important:** In Stata, all extended missing values (`.D`, `.R`, etc.) are treated as greater than any non-missing number. Be careful with inequality conditions — `if health < 5` will exclude missing values, but `if health != 5` will include them.
+In Stata, extended missing values are larger than any non-missing number. Use `missing(x)` or `x < .` carefully when filtering. In R, `haven::read_dta()` preserves them as tagged `NA` values.
 
-In R, when loading with `haven::read_dta()`, extended missing values are converted to tagged `NA` values. Use `haven::is_tagged_na()` to distinguish them if needed, or simply treat all as `NA`.
+## Tips for Working with HRS
 
----
-
-## Tips for Working with the HRS
-
-1. **Panel attrition:** Not all respondents are present in every wave. Always check `INW` (in-wave indicator) or `RwIWSTAT` before analyzing outcomes — missing data may mean attrition, not a missing response.
-
-2. **Survey weights:** Use `RwWTRESP` for respondent-level cross-sectional analyses. The HRS oversamples Hispanics, Blacks, and Florida residents. Note: Wave 16 weights are not available for the new Early Gen X cohort (`HACOHORT=8`).
-
-3. **Cohort composition changes over time:** Newer cohorts enter at later waves. A simple time trend may confound age, period, and cohort effects.
-
-4. **Spouse data:** The "S" variables capture data on the respondent's spouse/partner. These come from the spouse's own interview when available, or from proxy reports.
-
-5. **Cognition measures:** From Wave 14 (2018) onward, some cognition measures were collected via web interviews, which may not be directly comparable to in-person/phone measures. Check the codebook for details.
-
-6. **The data is BIG:** The full RAND HRS file has thousands of variables. The starter scripts reshape all of them. If you need a smaller working dataset, you can subset columns after loading the reshaped long file, or modify Script 01 to select variables before reshaping.
-
----
+1. Check `inw` before analyzing outcomes. An outcome can be missing because the respondent was not interviewed in that wave.
+2. Choose weights carefully. `rwtresp` is the respondent-level cross-sectional weight, but longitudinal analyses require more thought.
+3. Cohorts enter at different waves, so simple time trends can mix age, period, and cohort composition.
+4. Spouse variables use the `s` prefix and may come from the spouse interview or proxy information.
+5. Cognition measures changed in some later waves. Check the codebook before treating long-run trends as directly comparable.
+6. The full long files are large. Use the optional low-memory scripts when you only need starter variables plus a few extra stubs.
 
 ## Updating for New Waves
 
-When a new version of the RAND HRS is released (e.g., with Wave 17 data):
+When a new RAND HRS file is released:
 
-1. Download the new `.dta` file and place it in `data/raw/`
-2. In `01_reshape_and_save`:
-   - Update the filename in the load command
-   - **Stata:** In Section 4, add `r17*` (and `h17*`, `s17*`) to both the exclusion list in the single-digit `ds` commands and the double-digit `ds` commands. Check for any new problematic variable names that need renaming in Section 3.
-   - **R:** The programmatic stub detection adapts automatically — no changes needed beyond the filename.
-   - Add the new wave-to-year mapping (e.g., wave 17 = 2024)
-3. In `02_clean_demographics`:
-   - No changes needed if the variable structure remains the same
-   - Check the codebook for any new variables or coding changes
-4. Update this README with the new version info
-
----
-
-## Further Resources
-
-- RAND HRS data products: <https://hrsdata.isr.umich.edu/data-products/rand-hrs-longitudinal-file-2022>
-- HRS documentation: <https://hrs.isr.umich.edu/documentation>
-- RAND Center for the Study of Aging: <https://www.rand.org/well-being/social-and-behavioral-policy/centers/aging.html>
+1. Download the new `.dta` and place it in `hrs/data/raw/`.
+2. Update the raw filename in `01_reshape_and_save.R` and `01_reshape_and_save.do`.
+3. Add the new wave-year mapping in both 01 scripts.
+4. In Stata, update the wave loop limits if the new file has more than 16 waves.
+5. Re-run the validation checks and update this README with the new version information.

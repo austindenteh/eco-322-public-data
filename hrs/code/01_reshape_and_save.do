@@ -2,32 +2,19 @@
 * 01_reshape_and_save.do
 *
 * Purpose: Load the RAND HRS Longitudinal File 2022 (V1) in wide format,
-*          reshape ALL wave-varying variables from wide to long panel format,
+*          reshape wave-varying variables from wide to long panel format,
 *          and save.
 *
-* Input:   data/raw/randhrs1992_2022v1.dta  (wide format, one row per person)
-* Output:  output/hrs_long.dta              (long format, one row per person-wave)
-*          output/hrs_long.csv
+* Input:   data/raw/randhrs1992_2022v1.dta
+* Output:  output/hrs_long.dta
+*          output/hrs_long.csv (optional; on by default for the full build)
 *
-* Usage:   Run this script from the hrs/ directory:
-*            cd "/path/to/hrs"
-*            do code/01_reshape_and_save.do
+* Usage:   Run from hrs/, hrs/code/, from the repo root, or set global hrs_root.
 *
-* Data:    RAND HRS Longitudinal File 2022 (V1), May 2025
-*          16 waves (1992-2022), 45,234 respondents, 8 entry cohorts
-*
-* Approach:
-*   This script reshapes ALL wave-varying variables (r*, s*, h* prefixed),
-*   not just a curated subset. It programmatically discovers all variable
-*   stubs using Stata's `ds` command. 
-*
-*   The key challenge is that wave numbers can be 1 or 2 digits:
-*     - Waves 1-9:  variable names have 2-char prefix (e.g., r1shlt, r9bmi)
-*     - Waves 10-16: variable names have 3-char prefix (e.g., r10shlt, r16bmi)
-*   We handle both cases separately and then union the stub lists.
-*
-* Author:  Austin Denteh (combination of old do files and Claude Code)
-* Date:    February 2026
+* Low-memory build:
+*          Run the standalone code/01_reshape_and_save_optional_low_memory.do.
+*          Advanced users can still set global hrs_keep_starter_vars_only 1
+*          before running this full loader.
 ********************************************************************************
 
 clear all
@@ -35,30 +22,199 @@ set more off
 set maxvar 32767
 
 * ============================================================================
-* 1. DEFINE PATHS
+* 1. DEFINE PATHS AND OPTIONS
 * ============================================================================
-* Set the working directory to the hrs/ folder.
-* Users should update this path to match their system.
+* Optional manual path override. Uncomment and edit if auto-detection fails:
+* global hrs_root "/Users/yourname/path/to/econ-data-starters/hrs"
+* Then run: do "$hrs_root/code/01_reshape_and_save.do"
 
-* Uncomment and edit ONE of the following lines:
- global hrs_root "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/hrs"
+local cwd "`c(pwd)'"
+if "$hrs_root" != "" & fileexists("$hrs_root/code/01_reshape_and_save.do") {
+    global hrs_root "$hrs_root"
+}
+else if fileexists("code/01_reshape_and_save.do") & fileexists("README.md") {
+    global hrs_root "`cwd'"
+}
+else if fileexists("01_reshape_and_save.do") & fileexists("../README.md") {
+    global hrs_root "`cwd'/.."
+}
+else if fileexists("hrs/code/01_reshape_and_save.do") & fileexists("hrs/README.md") {
+    global hrs_root "`cwd'/hrs"
+}
+else {
+    display as error "Could not locate the hrs/ directory."
+    display as error "Run from hrs/, hrs/code/, from the repo root, or set global hrs_root."
+    display as error `"Manual override: global hrs_root "/path/to/hrs""'
+    error 601
+}
+
 cd "$hrs_root"
+capture mkdir "output"
 
-* If you opened Stata from the hrs/ directory, the relative paths below
-* will work without setting a global.
+local raw_data "data/raw/randhrs1992_2022v1.dta"
+if !fileexists("`raw_data'") {
+    display as error "Could not find `raw_data'."
+    display as error "Download randhrs1992_2022v1.dta and place it in hrs/data/raw/."
+    error 601
+}
 
-local raw_data  "data/raw/randhrs1992_2022v1.dta"
-local out_dta   "output/hrs_long.dta"
-local out_csv   "output/hrs_long.csv"
+local output_basename "hrs_long"
+if "$hrs_output_basename" != "" {
+    local output_basename "$hrs_output_basename"
+}
+
+local output_dir "output"
+if "$hrs_output_dir" != "" {
+    local output_dir "$hrs_output_dir"
+    capture mkdir "`output_dir'"
+}
+
+local out_dta "`output_dir'/`output_basename'.dta"
+local out_csv "`output_dir'/`output_basename'.csv"
+
+local keep_starter_vars_only = 0
+if "$hrs_keep_starter_vars_only" == "1" {
+    local keep_starter_vars_only = 1
+}
+
+local write_csv_export = 1
+if "$hrs_write_csv_export" == "0" {
+    local write_csv_export = 0
+}
+
+local starter_time_invariant_vars "hhidpn hhid pn hacohort ragender rabyear raeduc raracem rahispan"
+local starter_wave_stubs "inw ragey_b rmstat rshlt rcesd rbmi rconde rhosp radl5a riadl5a rmobila hitot hatotb rwtresp"
+local suffix_wave_stubs "inw radtype radappm radappy radream radreay radrecm radrecy radendm radendy radstat radappd radread radrecd radendd"
+
+local requested_waves "$hrs_waves"
+if "$hrs_years" != "" {
+    foreach y of global hrs_years {
+        local mapped_wave
+        if "`y'" == "1992" local mapped_wave 1
+        else if "`y'" == "1994" local mapped_wave 2
+        else if "`y'" == "1996" local mapped_wave 3
+        else if "`y'" == "1998" local mapped_wave 4
+        else if "`y'" == "2000" local mapped_wave 5
+        else if "`y'" == "2002" local mapped_wave 6
+        else if "`y'" == "2004" local mapped_wave 7
+        else if "`y'" == "2006" local mapped_wave 8
+        else if "`y'" == "2008" local mapped_wave 9
+        else if "`y'" == "2010" local mapped_wave 10
+        else if "`y'" == "2012" local mapped_wave 11
+        else if "`y'" == "2014" local mapped_wave 12
+        else if "`y'" == "2016" local mapped_wave 13
+        else if "`y'" == "2018" local mapped_wave 14
+        else if "`y'" == "2020" local mapped_wave 15
+        else if "`y'" == "2022" local mapped_wave 16
+        else {
+            display as error "[WARN] Year `y' does not map to a RAND HRS wave in this starter."
+        }
+        if "`mapped_wave'" != "" {
+            local requested_waves `requested_waves' `mapped_wave'
+        }
+    }
+}
+if trim("`requested_waves'") == "" {
+    local requested_waves "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16"
+}
+local requested_waves: list uniq requested_waves
+foreach w of local requested_waves {
+    if real("`w'") < 1 | real("`w'") > 16 | missing(real("`w'")) {
+        display as error "Invalid HRS wave: `w'. Valid waves are 1-16."
+        error 198
+    }
+}
+display as text "Using HRS waves: `requested_waves'"
 
 * ============================================================================
 * 2. LOAD THE RAW DATA
 * ============================================================================
-* Load the entire RAND HRS file — all variables.
-* The file has 45,234 observations (one per respondent) and thousands of
-* wave-prefixed variables.
 
-use "`raw_data'", clear
+if `keep_starter_vars_only' {
+    display as text "Reading RAND HRS metadata to select low-memory columns..."
+    quietly describe using "`raw_data'", varlist
+    local raw_vars `r(varlist)'
+
+    local requested_vars
+    foreach v of local starter_time_invariant_vars {
+        local v = lower("`v'")
+        local requested_vars `requested_vars' `v'
+    }
+    foreach v of global hrs_extra_time_invariant_vars {
+        local v = lower("`v'")
+        local requested_vars `requested_vars' `v'
+    }
+
+    local requested_wave_stubs `starter_wave_stubs' $hrs_extra_wave_stubs
+    foreach stub_raw of local requested_wave_stubs {
+        local stub = lower("`stub_raw'")
+        if "`stub'" == "inw" {
+            foreach w of local requested_waves {
+                local requested_vars `requested_vars' inw`w'
+            }
+        }
+        else {
+            local is_suffix_stub: list stub in suffix_wave_stubs
+            if `is_suffix_stub' {
+                foreach w of local requested_waves {
+                    local requested_vars `requested_vars' `stub'`w'
+                }
+            }
+            else if inlist(substr("`stub'", 1, 1), "r", "s", "h") & length("`stub'") > 1 {
+                local prefix = substr("`stub'", 1, 1)
+                local concept = substr("`stub'", 2, .)
+                foreach w of local requested_waves {
+                    local requested_vars `requested_vars' `prefix'`w'`concept'
+                }
+            }
+            else {
+                foreach w of local requested_waves {
+                    local requested_vars `requested_vars' `stub'`w'
+                }
+            }
+        }
+    }
+    local requested_vars: list uniq requested_vars
+
+    local present_vars
+    local missing_vars
+    foreach v of local requested_vars {
+        local found: list v in raw_vars
+        if `found' {
+            local present_vars `present_vars' `v'
+        }
+        else {
+            local missing_vars `missing_vars' `v'
+        }
+    }
+    local present_vars: list uniq present_vars
+    local missing_vars: list uniq missing_vars
+
+    local has_hhidpn: list posof "hhidpn" in present_vars
+    if `has_hhidpn' == 0 {
+        display as error "The required identifier hhidpn was not found in the raw file."
+        error 111
+    }
+
+    display as text "Loading selected raw variables from RAND HRS: " wordcount("`present_vars'") " variables"
+    if wordcount("`missing_vars'") > 0 {
+        local missing_preview
+        local i = 0
+        foreach v of local missing_vars {
+            local ++i
+            if `i' <= 12 {
+                local missing_preview `missing_preview' `v'
+            }
+        }
+        display as text "[INFO] Requested raw variables not found: `missing_preview'"
+    }
+
+    use `present_vars' using "`raw_data'", clear
+}
+else {
+    display as text "Loading full RAND HRS data. This may take a few minutes..."
+    use "`raw_data'", clear
+}
 
 display as text "Loaded " _N " respondents from raw RAND HRS file."
 display as text "Variables in memory: " c(k)
@@ -66,150 +222,97 @@ display as text "Variables in memory: " c(k)
 * ============================================================================
 * 3. RENAME PROBLEMATIC VARIABLES
 * ============================================================================
-* Some s-prefix variables have naming patterns that conflict with the
-* reshape stub detection. We append an underscore to move them out of the
-* way of the programmatic stub-building below.
-*
-* These are spouse (s-prefix) word recall variables where the naming doesn't
-* follow the standard [prefix][wave][concept] convention cleanly.
+* Some s-prefix word recall variables have naming patterns that can conflict
+* with reshape stub detection. Rename only if present.
 
 capture rename s1tr40  s1tr40_
 capture rename s2htr40 s2htr40_
 capture rename s2atr20 s2atr20_
-
 forvalues w = 3/16 {
     capture rename s`w'tr20 s`w'tr20_
 }
 
-display as text "Renamed problematic s-prefix variables."
+display as text "Renamed problematic s-prefix variables where present."
 
 * ============================================================================
-* 4. PROGRAMMATICALLY BUILD RESHAPE STUB LISTS
+* 4. BUILD RESHAPE STUB LISTS
 * ============================================================================
-* Strategy (from legacy code, extended for 16 waves):
-*
-* For each prefix (r, h, s):
-*   (a) Use `ds` to list all SINGLE-digit wave variables (waves 1-9)
-*       by excluding double-digit waves and all other prefixes.
-*       Strip the first 2 characters to get the concept name,
-*       and build stubs like "r@shlt".
-*
-*   (b) Use `ds` to list all DOUBLE-digit wave variables (waves 10-16).
-*       Strip the first 3 characters to get the concept name,
-*       and build stubs like "r@shlt".
-*
-*   (c) Union the two stub lists.
+* R/H/S wave variables use names like r1shlt and r10shlt. Stata reshape needs
+* stubs like r@shlt so single- and double-digit waves are handled together.
 
-* --- 4a. R-prefix variables (respondent) ------------------------------------
-* For R-prefix: we want single-digit wave vars (r1*-r9*) only.
-* We exclude: double-digit r-waves (r10*-r16*), time-invariant r-prefixes
-* (ra*, re*), and everything non-r (s*, h*, hhidpn, pn, filever, inw*).
-*
-* NOTE: Stata's `ds ..., not` will error if a pattern matches no variables.
-* We only include patterns that exist in the data.
+local stublist_r
+local stublist_h
+local stublist_s
 
-local stublist_r1
-ds r10* r11* r12* r13* r14* r15* r16* hhidpn hhid pn filever ra* re* h* s* inw*, not
+ds
 foreach v of varlist `r(varlist)' {
-    local vv1 = "r@" + substr("`v'", 3, .)
-    local stublist_r1 `stublist_r1' `vv1'
+    if regexm("`v'", "^r([0-9]+)(.+)$") {
+        local wave_part = regexs(1)
+        local concept = regexs(2)
+        local wave_num = real("`wave_part'")
+        if inrange(`wave_num', 1, 16) {
+            local stublist_r `stublist_r' r@`concept'
+        }
+    }
+    else if regexm("`v'", "^h([0-9]+)(.+)$") {
+        local wave_part = regexs(1)
+        local concept = regexs(2)
+        local wave_num = real("`wave_part'")
+        if inrange(`wave_num', 1, 16) {
+            local stublist_h `stublist_h' h@`concept'
+        }
+    }
+    else if regexm("`v'", "^s([0-9]+)(.+)$") {
+        local wave_part = regexs(1)
+        local concept = regexs(2)
+        local wave_num = real("`wave_part'")
+        if inrange(`wave_num', 1, 16) {
+            local stublist_s `stublist_s' s@`concept'
+        }
+    }
 }
-local stublist_r1: list uniq stublist_r1
-display as text "R-prefix stubs (waves 1-9): " wordcount("`stublist_r1'") " unique stubs"
 
-* Double-digit waves (r10* through r16*)
-local stublist_r2
-ds r10* r11* r12* r13* r14* r15* r16*
-foreach v of varlist `r(varlist)' {
-    local vv2 = "r@" + substr("`v'", 4, .)
-    local stublist_r2 `stublist_r2' `vv2'
+local stublist_r: list uniq stublist_r
+local stublist_h: list uniq stublist_h
+local stublist_s: list uniq stublist_s
+
+display as text "R-prefix stubs: " wordcount("`stublist_r'") " unique stubs"
+display as text "H-prefix stubs: " wordcount("`stublist_h'") " unique stubs"
+display as text "S-prefix stubs: " wordcount("`stublist_s'") " unique stubs"
+
+local stublist_suffix
+foreach stub of local suffix_wave_stubs {
+    local found_any = 0
+    foreach w of local requested_waves {
+        capture confirm variable `stub'`w'
+        if !_rc {
+            local found_any = 1
+        }
+    }
+    if `found_any' {
+        local stublist_suffix `stublist_suffix' `stub'
+    }
 }
-local stublist_r2: list uniq stublist_r2
-display as text "R-prefix stubs (waves 10-16): " wordcount("`stublist_r2'") " unique stubs"
+local stublist_suffix: list uniq stublist_suffix
+display as text "Suffix-numbered stubs: " wordcount("`stublist_suffix'") " unique stubs"
 
-* Union
-local stublist_r: list stublist_r1 | stublist_r2
-display as text "R-prefix stubs (all waves): " wordcount("`stublist_r'") " unique stubs"
-
-* --- 4b. H-prefix variables (household) -------------------------------------
-* For H-prefix: we want single-digit wave vars (h1*-h9*) only.
-* Exclude: double-digit h-waves (h10*-h16*), time-invariant h-prefixes
-* (ha*, hhidpn, hhid), and everything non-h (r*, s*, pn, filever, inw*).
-
-local stublist_h1
-ds h10* h11* h12* h13* h14* h15* h16* hhidpn hhid ha* r* s* pn filever inw*, not
-foreach v of varlist `r(varlist)' {
-    local vv5 = "h@" + substr("`v'", 3, .)
-    local stublist_h1 `stublist_h1' `vv5'
+if wordcount("`stublist_r' `stublist_h' `stublist_s' `stublist_suffix'") == 0 {
+    display as error "No wave-varying variables were found to reshape."
+    error 111
 }
-local stublist_h1: list uniq stublist_h1
-display as text "H-prefix stubs (waves 1-9): " wordcount("`stublist_h1'") " unique stubs"
-
-local stublist_h2
-ds h10* h11* h12* h13* h14* h15* h16*
-foreach v of varlist `r(varlist)' {
-    local vv6 = "h@" + substr("`v'", 4, .)
-    local stublist_h2 `stublist_h2' `vv6'
-}
-local stublist_h2: list uniq stublist_h2
-display as text "H-prefix stubs (waves 10-16): " wordcount("`stublist_h2'") " unique stubs"
-
-local stublist_h: list stublist_h1 | stublist_h2
-display as text "H-prefix stubs (all waves): " wordcount("`stublist_h'") " unique stubs"
-
-* --- 4c. S-prefix variables (spouse) ----------------------------------------
-* For S-prefix: we want single-digit wave vars (s1*-s9*) only.
-* Exclude: double-digit s-waves (s10*-s16*), time-invariant s-prefixes
-* (sa*), and everything non-s (r*, h*, hhidpn, hhid, pn, filever, inw*).
-
-local stublist_s1
-ds s10* s11* s12* s13* s14* s15* s16* sa* hhidpn hhid pn filever r* h* inw*, not
-foreach v of varlist `r(varlist)' {
-    local vv3 = "s@" + substr("`v'", 3, .)
-    local stublist_s1 `stublist_s1' `vv3'
-}
-local stublist_s1: list uniq stublist_s1
-display as text "S-prefix stubs (waves 1-9): " wordcount("`stublist_s1'") " unique stubs"
-
-local stublist_s2
-ds s10* s11* s12* s13* s14* s15* s16*
-foreach v of varlist `r(varlist)' {
-    local vv4 = "s@" + substr("`v'", 4, .)
-    local stublist_s2 `stublist_s2' `vv4'
-}
-local stublist_s2: list uniq stublist_s2
-display as text "S-prefix stubs (waves 10-16): " wordcount("`stublist_s2'") " unique stubs"
-
-local stublist_s: list stublist_s1 | stublist_s2
-display as text "S-prefix stubs (all waves): " wordcount("`stublist_s'") " unique stubs"
 
 * ============================================================================
 * 5. RESHAPE FROM WIDE TO LONG
 * ============================================================================
-* Reshape ALL wave-varying variables at once.
-* The time-invariant variables (hhidpn, hhid, pn, hacohort, ragender,
-* rabyear, raeduc, etc.) are automatically carried along.
-*
-* The `inw` variable (in-wave indicator) and `radtype`/`radstat` etc.
-* (death-related administrative variables) also need to be included
-* as they follow the wave-numbering convention.
 
-display as text _newline "Reshaping from wide to long — this may take several minutes..."
-
-reshape long `stublist_r' `stublist_s' `stublist_h' ///
-    inw radtype radappm radappy radream radreay ///
-    radrecm radrecy radendm radendy radstat radappd ///
-    radread radrecd radendd ///
-    , i(hhidpn) j(wave)
+display as text _newline "Reshaping from wide to long. This may take several minutes..."
+reshape long `stublist_r' `stublist_s' `stublist_h' `stublist_suffix', i(hhidpn) j(wave)
 
 display as text "Reshaped to long format: " _N " person-wave observations."
 
 * ============================================================================
 * 6. CREATE SURVEY YEAR VARIABLE
 * ============================================================================
-* Map wave numbers to the primary survey year.
-* Note: Waves 1-3 have different years for HRS vs. AHEAD cohorts.
-* We use the HRS year as the primary year here.
 
 gen year = .
 replace year = 1992 if wave == 1
@@ -231,87 +334,93 @@ replace year = 2022 if wave == 16
 label var year "Survey year (primary)"
 label var wave "HRS wave number (1-16)"
 
+tempvar requested_wave_flag
+gen byte `requested_wave_flag' = 0
+foreach w of local requested_waves {
+    replace `requested_wave_flag' = 1 if wave == `w'
+}
+quietly count if `requested_wave_flag' == 0
+if r(N) > 0 {
+    keep if `requested_wave_flag' == 1
+}
+
 * ============================================================================
-* 7. SORT AND SAVE
+* 7. SORT, SAVE, AND VALIDATE
 * ============================================================================
 
 sort hhidpn wave
 
-* Save as Stata .dta
 save "`out_dta'", replace
 display as text "Saved: `out_dta'"
 
-* Save as CSV (for use in R, Python, etc.)
-* NOTE: The CSV will be very large given we reshaped all variables.
-export delimited using "`out_csv'", replace
-display as text "Saved: `out_csv'"
-
-display as text _newline "Done! Long-format panel has " _N " observations."
-
-* ============================================================================
-* 8. VALIDATION CHECKS
-* ============================================================================
-* Verify the reshape produced the expected output. These checks will flag
-* any problems with an error message but will not stop execution.
+if `write_csv_export' {
+    export delimited using "`out_csv'", replace
+    display as text "Saved: `out_csv'"
+}
+else {
+    display as text "Skipped CSV export. Set global hrs_write_csv_export 1 to create it."
+}
 
 display as text _newline "============================================"
 display as text "   VALIDATION CHECKS"
 display as text "============================================"
 
-* --- 8a. Check total observations ---
-* Expected: 45,234 respondents × 16 waves = 723,744 person-wave obs.
-local expected_N = 45234 * 16
+local n_requested_waves = wordcount("`requested_waves'")
+local expected_N = 45234 * `n_requested_waves'
 if _N == `expected_N' {
-    display as text "[PASS] Observation count: " _N " (= 45,234 × 16)"
+    display as text "[PASS] Observation count: " _N " (= 45,234 x `n_requested_waves' selected wave(s))"
 }
 else {
-    display as error "[FAIL] Expected `expected_N' observations but found " _N
+    display as error "[WARN] Expected `expected_N' observations but found " _N
 }
 
-* --- 8b. Check wave range ---
-quietly summarize wave
-if r(min) == 1 & r(max) == 16 {
-    display as text "[PASS] Wave range: " r(min) " to " r(max)
+tempvar observed_requested_wave
+quietly gen byte `observed_requested_wave' = 0
+foreach w of local requested_waves {
+    quietly replace `observed_requested_wave' = 1 if wave == `w'
+}
+quietly count if `observed_requested_wave' == 0
+if r(N) == 0 {
+    display as text "[PASS] Wave selection matches requested waves: `requested_waves'"
 }
 else {
-    display as error "[FAIL] Expected wave range 1-16 but found " r(min) " to " r(max)
+    display as error "[WARN] Found observations outside requested waves: `requested_waves'"
 }
 
-* --- 8c. Check number of unique respondents ---
-quietly distinct hhidpn
-if r(ndistinct) == 45234 {
-    display as text "[PASS] Unique respondents: " r(ndistinct)
+tempvar respondent_tag
+quietly egen `respondent_tag' = tag(hhidpn)
+quietly count if `respondent_tag'
+local n_unique = r(N)
+if `n_unique' == 45234 {
+    display as text "[PASS] Unique respondents: `n_unique'"
 }
 else {
-    display as error "[FAIL] Expected 45,234 unique respondents but found " r(ndistinct)
+    display as error "[WARN] Expected 45,234 unique respondents but found `n_unique'"
 }
 
-* --- 8d. Check each respondent has exactly 16 rows ---
 quietly {
     tempvar wave_count
     bysort hhidpn: gen `wave_count' = _N
     summarize `wave_count'
 }
-if r(min) == 16 & r(max) == 16 {
-    display as text "[PASS] All respondents have exactly 16 rows"
+if r(min) == `n_requested_waves' & r(max) == `n_requested_waves' {
+    display as text "[PASS] All respondents have exactly `n_requested_waves' selected wave row(s)"
 }
 else {
-    display as error "[FAIL] Some respondents have != 16 rows (min=" r(min) ", max=" r(max) ")"
+    display as error "[WARN] Some respondents have unexpected row counts (min=" r(min) ", max=" r(max) ")"
 }
 
-* --- 8e. Check year variable was created correctly ---
 quietly count if missing(year)
 if r(N) == 0 {
     display as text "[PASS] Year variable has no missing values"
 }
 else {
-    display as error "[FAIL] Year variable has " r(N) " missing values"
+    display as error "[WARN] Year variable has " r(N) " missing values"
 }
 
-* --- 8f. Check key variables exist ---
 local key_vars "hhidpn wave year inw ragender rabyear raeduc rshlt rcesd rbmi hitot hatotb"
 local all_exist = 1
-local missing_vars ""
+local missing_vars
 foreach v of local key_vars {
     capture confirm variable `v'
     if _rc != 0 {
@@ -320,110 +429,60 @@ foreach v of local key_vars {
     }
 }
 if `all_exist' == 1 {
-    display as text "[PASS] All key variables present: `key_vars'"
+    display as text "[PASS] Starter key variables present"
 }
 else {
-    display as error "[FAIL] Missing key variable(s):`missing_vars'"
+    display as error "[WARN] Missing starter key variable(s):`missing_vars'"
 }
 
-* --- 8g. Check self-rated health (rshlt) has valid values ---
-* rshlt should be 1-5 when non-missing (for interviewed respondents)
-quietly count if rshlt < 1 | (rshlt > 5 & rshlt < .)
-if r(N) == 0 {
-    display as text "[PASS] Self-rated health (rshlt) values in expected range 1-5"
+capture confirm variable rshlt
+if !_rc {
+    quietly count if rshlt < 1 | (rshlt > 5 & rshlt < .)
+    if r(N) == 0 {
+        display as text "[PASS] Self-rated health (rshlt) values in expected range 1-5"
+    }
+    else {
+        display as error "[WARN] rshlt has " r(N) " observations outside range 1-5"
+    }
+}
+
+capture confirm variable inw
+if !_rc {
+    quietly count if inw != 0 & inw != 1 & !missing(inw)
+    if r(N) == 0 {
+        display as text "[PASS] In-wave indicator (inw) is 0/1 as expected"
+    }
+    else {
+        display as error "[WARN] inw has " r(N) " observations that are not 0 or 1"
+    }
+}
+
+if `keep_starter_vars_only' {
+    display as text "[INFO] Low-memory mode intentionally keeps a compact starter variable set."
+}
+else if c(k) > 500 {
+    display as text "[PASS] Variable count (" c(k) ") indicates broad wave-varying coverage"
 }
 else {
-    display as error "[FAIL] rshlt has " r(N) " observations outside range 1-5"
+    display as error "[WARN] Variable count (" c(k) ") seems low for the full build"
 }
 
-* --- 8h. Check in-wave indicator (inw) ---
-* inw should be 0 or 1 when non-missing
-quietly count if inw != 0 & inw != 1 & !missing(inw)
-if r(N) == 0 {
-    display as text "[PASS] In-wave indicator (inw) is 0/1 as expected"
-}
-else {
-    display as error "[FAIL] inw has " r(N) " observations that are not 0 or 1"
-}
-
-* --- 8i. Check response rates are plausible ---
-* Total interviewed person-waves should be roughly 250,000-400,000
-quietly count if inw == 1
-local n_interviewed = r(N)
-if `n_interviewed' > 200000 & `n_interviewed' < 500000 {
-    display as text "[PASS] Total interviewed person-waves: `n_interviewed' (plausible)"
-}
-else {
-    display as error "[FAIL] Total interviewed person-waves: `n_interviewed' (implausible)"
-}
-
-* --- 8j. Spot check: Wave 16 (2022) should have all 8 cohorts ---
-quietly {
-    tab hacohort if wave == 16 & inw == 1
-}
-display as text "[INFO] Cohort distribution in Wave 16 shown above"
-
-* --- 8k. Check variable count ---
-display as text "[INFO] Total variables in long dataset: " c(k)
-if c(k) > 500 {
-    display as text "[PASS] Variable count (" c(k) ") indicates all wave-varying variables were reshaped"
-}
-else {
-    display as error "[FAIL] Variable count (" c(k) ") seems too low — some variables may not have been reshaped"
-}
-
-* --- 8l. Summary of key health variables for sanity check ---
-display as text _newline "--- Quick summary of key variables (interviewed respondents only) ---"
-quietly {
-    summarize ragey_b rshlt rcesd rbmi if inw == 1
-}
-summarize ragey_b rshlt rcesd rbmi if inw == 1
-
-display as text _newline "============================================"
-display as text "   VALIDATION COMPLETE"
-display as text "============================================"
+display as text _newline "Done. Long-format panel has " _N " observations and " c(k) " variables."
+display as text "Next step: run code/02_clean_demographics.do"
 
 ********************************************************************************
 * NOTES FOR USERS:
 *
-* 1. ALL VARIABLES RESHAPED: This script reshapes every wave-varying variable 
-*	 in the RAND HRS file.
+* 1. The default script reshapes every R/H/S wave-prefixed variable, the INW
+*    indicators, and selected suffix-numbered death/admin variables.
 *
-* 3. RENAMED VARIABLES: Some s-prefix word recall variables (s*tr20, s*tr40)
-*    were renamed with a trailing underscore in Section 3 to avoid conflicts
-*    with the programmatic stub detection. After the reshape, these appear
-*    as str20_, str40_ etc. You can rename them back if needed.
+* 2. For the reviewed smaller starter dataset, run
+*    code/01_reshape_and_save_optional_low_memory.do. Advanced users can also set:
+*      global hrs_keep_starter_vars_only 1
+*      global hrs_waves "14 15 16"      // or global hrs_years "2018 2020 2022"
+*      global hrs_extra_time_invariant_vars "your_stable_variable"
+*      global hrs_extra_wave_stubs "rcovrt scovrt"
 *
-* 4. MISSING VALUES: The RAND HRS uses Stata extended missing values
-*    (.D = don't know, .R = refused, .X = does not apply, etc.).
-*    These are preserved in the reshape. See the README for the full list.
-*
-* 5. WAVE 1 DIFFERENCES: Some variables are defined differently or not
-*    available in Wave 1 (1992). For example, CES-D is not derived for
-*    Wave 1 because the response options differed. The codebook documents
-*    all cross-wave differences.
-*
-* 6. UPDATING FOR NEW WAVES: When Wave 17 data becomes available:
-*    - Update the filename in Section 2
-*    - In Section 4, add r17* to the double-digit exclusion list in the
-*      single-digit `ds` commands, and add r17* to the double-digit
-*      `ds` commands. Same for h17* and s17*.
-*    - Add any new problematic variable renames in Section 3 if needed.
-*    - Add year = 2024 for wave == 17 in Section 6.
-*
-* 7. HOW THE STUB DETECTION WORKS:
-*    The key challenge is that variable names like r1shlt (wave 1) have a
-*    2-character prefix, while r10shlt (wave 10) has a 3-character prefix.
-*    We handle this by:
-*    (a) Listing single-digit-wave vars (r1*-r9*) by excluding r10*-r16*
-*        and all non-r-prefix variables, then stripping 2 chars.
-*    (b) Listing double-digit-wave vars (r10*-r16*), then stripping 3 chars.
-*    (c) Taking the union of both stub lists.
-*    This is the same logic used in Austin Denteh's legacy code. 
-*
-*    IMPORTANT: The `ds ..., not` command errors if any exclusion pattern
-*    matches zero variables. The exclusion lists in Section 4 are tailored
-*    to the 2022 file's actual variable prefixes (r, s, h, inw, pn, filever,
-*    ra, re, ha, sa, hh). If future releases add new prefixes, you may
-*    need to update the exclusion patterns.
+* 3. The optional low-memory Stata path reads only selected raw variables from
+*    the .dta file before reshaping.
 ********************************************************************************

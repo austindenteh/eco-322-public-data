@@ -240,7 +240,7 @@ Creates harmonized cleaned variables across all years using era-aware logic and 
 
 ### Memory and File-Size Notes
 
-The default workflow is already the teaching-friendly, lower-memory NHIS path: it loads only the redesigned 2019–2024 CSV files and writes compact RDS files in R. For a full 2004–2024 build with pre-2019 years, use `code/01_load_and_append_optional_low_memory.R` or `code/01_load_and_append_optional_low_memory.do`. These wrappers keep the variables needed by the starter cleaner, plus any names listed in `extra_vars` / `nhis_extra_keep_vars`.
+The default workflow is already the teaching-friendly, lower-memory NHIS path: it loads only the redesigned 2019–2024 CSV files and writes compact RDS files in R. For a full 2004–2024 build with pre-2019 years, use `code/01_load_and_append_optional_low_memory.R` or `code/01_load_and_append_optional_low_memory.do`. These standalone low-memory scripts keep the variables needed by the starter cleaner, plus any names listed in `extra_vars` / `nhis_extra_keep_vars`.
 
 Use `extra_vars` in R for additional variables with stable names after NHIS harmonization:
 
@@ -257,6 +257,8 @@ Use `nhis_extra_keep_vars` in Stata for the same stable-name case:
 global nhis_extra_keep_vars "regionbr_a plborn_a"
 do code/01_load_and_append_optional_low_memory.do
 ```
+
+In Stata, set either year global to `"none"` or `"skip"` if you want to omit that era while testing a smaller build.
 
 Use `extra_var_families` when the same concept appears under different raw names across years. Each named entry keeps all listed aliases during the low-memory load and then coalesces them into one column:
 

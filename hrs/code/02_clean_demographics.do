@@ -1,280 +1,231 @@
 ********************************************************************************
 * 02_clean_demographics.do
 *
-* Purpose: Load the reshaped RAND HRS long-format dataset and demonstrate:
-*          (1) Cleaning basic demographic variables for analysis
-*          (2) Handling HRS extended missing values
-*          (3) Producing descriptive statistics / sanity checks
-*          (4) Running a simple regression
+* Purpose: Load the reshaped RAND HRS long-format dataset, create starter
+*          demographic variables, save an analysis-ready file, and optionally
+*          run descriptive tables/regression examples.
 *
 * Input:   output/hrs_long.dta  (from 01_reshape_and_save.do)
-* Output:  Descriptive stats and regression output displayed in Stata window
+* Output:  output/hrs_demographics_clean.dta
 *
-* Usage:   Run from the hrs/ directory:
-*            cd "/path/to/hrs"
-*            do code/02_clean_demographics.do
-*
-* Notes:   This is a STARTER script. It demonstrates how to clean a subset
-*          of variables. Users should extend this for their own analysis.
-*
-* Author:  Austin Denteh (combination of old do files and Claude Code)
-* Date:    February 2026
+* Usage:   Run from hrs/, hrs/code/, from the repo root, or set global hrs_root.
 ********************************************************************************
 
 clear all
 set more off
+set maxvar 32767
 
 * ============================================================================
-* 1. LOAD THE RESHAPED DATA
+* 1. DEFINE PATHS AND OPTIONS
+* ============================================================================
+* Optional manual path override. Uncomment and edit if auto-detection fails:
+* global hrs_root "/Users/yourname/path/to/econ-data-starters/hrs"
+* Then run: do "$hrs_root/code/02_clean_demographics.do"
+
+local cwd "`c(pwd)'"
+if "$hrs_root" != "" & fileexists("$hrs_root/code/02_clean_demographics.do") {
+    global hrs_root "$hrs_root"
+}
+else if fileexists("code/02_clean_demographics.do") & fileexists("README.md") {
+    global hrs_root "`cwd'"
+}
+else if fileexists("02_clean_demographics.do") & fileexists("../README.md") {
+    global hrs_root "`cwd'/.."
+}
+else if fileexists("hrs/code/02_clean_demographics.do") & fileexists("hrs/README.md") {
+    global hrs_root "`cwd'/hrs"
+}
+else {
+    display as error "Could not locate the hrs/ directory."
+    display as error "Run from hrs/, hrs/code/, from the repo root, or set global hrs_root."
+    display as error `"Manual override: global hrs_root "/path/to/hrs""'
+    error 601
+}
+
+cd "$hrs_root"
+capture mkdir "output"
+
+local input_basename "hrs_long"
+if "$hrs_input_basename" != "" {
+    local input_basename "$hrs_input_basename"
+}
+
+local input_dir "output"
+if "$hrs_input_dir" != "" {
+    local input_dir "$hrs_input_dir"
+}
+
+local output_dir "output"
+if "$hrs_output_dir" != "" {
+    local output_dir "$hrs_output_dir"
+    capture mkdir "`output_dir'"
+}
+
+local in_dta "`input_dir'/`input_basename'.dta"
+if !fileexists("`in_dta'") & fileexists("`input_dir'/`input_basename'_from_r.dta") {
+    local in_dta "`input_dir'/`input_basename'_from_r.dta"
+}
+local out_dta "`output_dir'/hrs_demographics_clean.dta"
+
+* Public starter scripts keep examples visible but off by default.
+local run_examples 0
+if "$hrs_run_examples" == "1" {
+    local run_examples 1
+}
+
+* ============================================================================
+* 2. LOAD DATA
 * ============================================================================
 
-use "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/hrs/output/hrs_long.dta", clear
+if !fileexists("`in_dta'") {
+    display as error "Could not find `in_dta'. Run 01_reshape_and_save.do first."
+    error 601
+}
+
+use "`in_dta'", clear
 display as text "Loaded " _N " person-wave observations."
 
-* Set up as panel data
+local required_vars "hhidpn wave year inw ragender raeduc raracem rahispan rmstat hacohort"
+local missing_required
+foreach v of local required_vars {
+    capture confirm variable `v'
+    if _rc != 0 {
+        local missing_required `missing_required' `v'
+    }
+}
+if wordcount("`missing_required'") > 0 {
+    display as error "The reshaped HRS file is missing required variables:`missing_required'"
+    error 111
+}
+
 xtset hhidpn wave
 display as text "Panel variable: hhidpn | Time variable: wave (1-16)"
-
-* ============================================================================
-* 2. UNDERSTAND THE PANEL STRUCTURE
-* ============================================================================
-* The HRS is an UNBALANCED panel: not all respondents are present in all waves.
-* The UNBALANCED panel is not problematic for most analyses.
-* This can be because:
-*   - Their cohort had not yet entered the study
-*   - They died or dropped out (attrition)
-*   - They skipped a wave but returned later
-*
-* The variable `inw` indicates whether the respondent was interviewed in
-* a given wave (1 = yes, 0 = no).
-
-display as text _newline "--- Response rates by wave ---"
-tabulate wave inw, row
-
-* How many waves does each respondent contribute?
-bysort hhidpn: egen total_waves = total(inw)
-display as text _newline "--- Distribution of waves responded ---"
-tabulate total_waves
-
-* For most analyses, you'll want to restrict to waves where the respondent
-* was actually interviewed:
-* keep if inw == 1
 
 * ============================================================================
 * 3. CLEAN DEMOGRAPHIC VARIABLES
 * ============================================================================
 
-* --- 3a. Gender --------------------------------------------------------------
-* ragender: 1 = Male, 2 = Female (time-invariant)
-gen female = (ragender == 2) if !missing(ragender)
+display as text _newline "============================================"
+display as text "   CLEANING HRS DEMOGRAPHICS"
+display as text "============================================"
+
+* Gender: ragender 1 = Male, 2 = Female
+gen female = .
+replace female = 0 if ragender == 1
+replace female = 1 if ragender == 2
 label var female "Female (0/1)"
-label define female_lbl 0 "Male" 1 "Female"
+label define female_lbl 0 "Male" 1 "Female", replace
 label values female female_lbl
 
-display as text _newline "--- Gender distribution ---"
-tab female if wave == 1 | (wave > 1 & inw == 1), missing
-
-* --- 3b. Age -----------------------------------------------------------------
-* ragey_b: age at interview in years (wave-varying)
-* This variable has extended missing values for respondents not interviewed.
-label var ragey_b "Age at interview"
-
-display as text _newline "--- Age summary (interviewed respondents only) ---"
-summarize ragey_b if inw == 1
-
-display as text _newline "--- Age by wave (interviewed respondents only) ---"
-tabstat ragey_b if inw == 1, by(wave) statistics(mean sd min max n) format(%9.1f)
-
-* --- 3c. Education -----------------------------------------------------------
-* raeduc: 1=Lt HS, 2=GED, 3=HS grad, 4=Some college, 5=College+ (time-invariant)
-* We can create a simpler 4-category version.
-
+* Education: raeduc 1=Lt HS, 2=GED, 3=HS grad, 4=Some college, 5=College+
 gen educ_cat = .
-replace educ_cat = 1 if raeduc == 1                    // Less than high school
-replace educ_cat = 2 if raeduc == 2 | raeduc == 3      // HS graduate or GED
-replace educ_cat = 3 if raeduc == 4                    // Some college
-replace educ_cat = 4 if raeduc == 5                    // College and above
-
+replace educ_cat = 1 if raeduc == 1
+replace educ_cat = 2 if raeduc == 2 | raeduc == 3
+replace educ_cat = 3 if raeduc == 4
+replace educ_cat = 4 if raeduc == 5
 label var educ_cat "Education (4 categories)"
-label define educ_lbl 1 "Less than HS" 2 "HS/GED" 3 "Some college" 4 "College+"
+label define educ_lbl 1 "Less than HS" 2 "HS/GED" 3 "Some college" 4 "College+", replace
 label values educ_cat educ_lbl
 
-display as text _newline "--- Education distribution ---"
-tab educ_cat if inw == 1 & wave == 4, missing
-* Using wave 4 because all cohorts through WB are present by then.
-
-* --- 3d. Race/ethnicity ------------------------------------------------------
-* raracem: 1=White, 2=Black, 3=Other (time-invariant)
-* rahispan: 0=Not Hispanic, 1=Hispanic (time-invariant)
-* We create a combined race/ethnicity variable.
-
+* Race/ethnicity: raracem 1=White, 2=Black, 3=Other; rahispan 1=Hispanic
 gen race_eth = .
-replace race_eth = 1 if rahispan == 0 & raracem == 1   // White non-Hispanic
-replace race_eth = 2 if rahispan == 0 & raracem == 2   // Black non-Hispanic
-replace race_eth = 3 if rahispan == 1                   // Hispanic (any race)
-replace race_eth = 4 if rahispan == 0 & raracem == 3   // Other non-Hispanic
-
+replace race_eth = 1 if rahispan == 0 & raracem == 1
+replace race_eth = 2 if rahispan == 0 & raracem == 2
+replace race_eth = 3 if rahispan == 1
+replace race_eth = 4 if rahispan == 0 & raracem == 3
 label var race_eth "Race/ethnicity"
-label define race_lbl 1 "White NH" 2 "Black NH" 3 "Hispanic" 4 "Other NH"
+label define race_lbl 1 "White NH" 2 "Black NH" 3 "Hispanic" 4 "Other NH", replace
 label values race_eth race_lbl
 
-display as text _newline "--- Race/ethnicity distribution ---"
-tab race_eth if inw == 1 & wave == 4, missing
-
-* --- 3e. Marital status ------------------------------------------------------
-* rmstat: wave-varying marital status
-*   1=Married, 2=Married (spouse absent), 3=Partnered,
-*   4=Separated, 5=Divorced, 6=Separated/Divorced,
-*   7=Widowed, 8=Never married
-* We can create a simpler 4-category version.
-
+* Marital status: rmstat is wave-varying
 gen marital = .
-replace marital = 1 if inrange(rmstat, 1, 3)            // Married/Partnered
-replace marital = 2 if inrange(rmstat, 4, 6)            // Separated/Divorced
-replace marital = 3 if rmstat == 7                       // Widowed
-replace marital = 4 if rmstat == 8                       // Never married
-
+replace marital = 1 if inrange(rmstat, 1, 3)
+replace marital = 2 if inrange(rmstat, 4, 6)
+replace marital = 3 if rmstat == 7
+replace marital = 4 if rmstat == 8
 label var marital "Marital status (4 categories)"
-label define mar_lbl 1 "Married/Partnered" 2 "Sep/Divorced" 3 "Widowed" 4 "Never married"
+label define mar_lbl 1 "Married/Partnered" 2 "Sep/Divorced" 3 "Widowed" 4 "Never married", replace
 label values marital mar_lbl
 
-display as text _newline "--- Marital status by wave (interviewed respondents) ---"
-tab wave marital if inw == 1, row
-
-* --- 3f. Entry cohort --------------------------------------------------------
-* hacohort: 0=AHEAD spouse, 1=AHEAD, 2=CODA, 3=HRS, 4=WB, 5=EBB,
-*           6=MBB, 7=LBB, 8=EGENX
-
+* Entry cohort labels
 label define cohort_lbl 0 "AHEAD (spouse)" 1 "AHEAD" 2 "CODA" 3 "HRS" ///
-    4 "War Baby" 5 "Early Boomer" 6 "Mid Boomer" 7 "Late Boomer" 8 "Early Gen X"
+    4 "War Baby" 5 "Early Boomer" 6 "Mid Boomer" 7 "Late Boomer" 8 "Early Gen X", replace
 label values hacohort cohort_lbl
 
-display as text _newline "--- Entry cohort distribution ---"
-tab hacohort if inw == 1 & wave == 16
+* Respondent interview count across waves
+tempvar interviewed_flag
+gen byte `interviewed_flag' = (inw == 1) if !missing(inw)
+bysort hhidpn: egen total_waves = total(`interviewed_flag')
+label var total_waves "Number of waves with respondent interview"
+
+display as text "Created: female, educ_cat, race_eth, marital, total_waves"
 
 * ============================================================================
-* 4. HANDLE MISSING VALUES
+* 4. SAVE CLEANED DATA
 * ============================================================================
-* The RAND HRS uses Stata extended missing values to record WHY data is missing:
-*   .  = did not respond this wave
-*   .D = don't know
-*   .R = refused
-*   .X = does not apply
-*   .Q = question not asked
-*   .M = other missing
-*
-* IMPORTANT: In Stata, ALL extended missing values are > any non-missing number.
-*   - `if x < 5` correctly excludes all missing values
-*   - `if x != 5` INCLUDES missing values (be careful!)
-*   - Use `if !missing(x)` or `if x < .` to exclude all missing
 
-* Example: Check the distribution of missing codes for self-rated health
-display as text _newline "--- Self-rated health: missing value patterns ---"
-* Count each type of missing
-gen shlt_status = "Valid" if rshlt >= 1 & rshlt <= 5
-replace shlt_status = "Not interviewed (.)" if rshlt == .
-replace shlt_status = "Don't know (.D)" if rshlt == .d
-replace shlt_status = "Refused (.R)" if rshlt == .r
-replace shlt_status = "Other missing" if rshlt > 5 & rshlt < . & shlt_status == ""
-replace shlt_status = "Other ext. missing" if rshlt > . & shlt_status == ""
-tab shlt_status wave if wave >= 4, missing
-drop shlt_status
+save "`out_dta'", replace
+display as text "Saved: `out_dta'"
 
 * ============================================================================
-* 5. DESCRIPTIVE STATISTICS
+* 5. OPTIONAL DESCRIPTIVE TABLES AND REGRESSIONS
 * ============================================================================
-* Restrict to interviewed respondents for meaningful statistics.
 
-display as text _newline "=========================================="
-display as text "   DESCRIPTIVE STATISTICS (interviewed only)"
-display as text "=========================================="
+if `run_examples' {
+    display as text _newline "--- Response rates by wave ---"
+    tabulate wave inw, row
 
-* --- 5a. Summary statistics for key variables --------------------------------
-display as text _newline "--- Summary statistics (all waves pooled) ---"
-summarize ragey_b female rshlt rcesd rbmi rconde ///
-    rhosp radl5a riadl5a rmobila hitot hatotb ///
-    if inw == 1, detail
+    display as text _newline "--- Distribution of waves responded ---"
+    tabulate total_waves
 
-* --- 5b. Summary by wave ----------------------------------------------------
-display as text _newline "--- Self-rated health by wave ---"
-tabstat rshlt if inw == 1, by(wave) statistics(mean sd n) format(%9.2f)
+    display as text _newline "--- Gender distribution ---"
+    tab female if wave == 1 | (wave > 1 & inw == 1), missing
 
-display as text _newline "--- CES-D depression score by wave ---"
-tabstat rcesd if inw == 1, by(wave) statistics(mean sd n) format(%9.2f)
+    display as text _newline "--- Education distribution ---"
+    tab educ_cat if inw == 1 & wave == 4, missing
 
-display as text _newline "--- BMI by wave ---"
-tabstat rbmi if inw == 1, by(wave) statistics(mean sd n) format(%9.1f)
+    display as text _newline "--- Race/ethnicity distribution ---"
+    tab race_eth if inw == 1 & wave == 4, missing
 
-* --- 5c. Summary by cohort ---------------------------------------------------
-display as text _newline "--- Self-rated health by cohort (wave 10, 2010) ---"
-tabstat rshlt if inw == 1 & wave == 10, by(hacohort) statistics(mean sd n) format(%9.2f)
+    display as text _newline "--- Marital status by wave (interviewed respondents) ---"
+    tab wave marital if inw == 1, row
 
-* --- 5d. Crosstabs -----------------------------------------------------------
-display as text _newline "--- Self-rated health by gender ---"
-tab rshlt female if inw == 1, col
+    capture confirm variable rshlt
+    if !_rc {
+        display as text _newline "--- Self-rated health: missing value patterns ---"
+        gen str24 shlt_status = "Valid" if rshlt >= 1 & rshlt <= 5
+        replace shlt_status = "Not interviewed (.)" if rshlt == .
+        replace shlt_status = "Don't know (.D)" if rshlt == .d
+        replace shlt_status = "Refused (.R)" if rshlt == .r
+        replace shlt_status = "Other missing" if rshlt > 5 & rshlt < . & shlt_status == ""
+        replace shlt_status = "Other ext. missing" if rshlt > . & shlt_status == ""
+        tab shlt_status wave if wave >= 4, missing
+        drop shlt_status
+    }
 
-display as text _newline "--- Self-rated health by race/ethnicity ---"
-tab rshlt race_eth if inw == 1, col
+    display as text _newline "=========================================="
+    display as text "   DESCRIPTIVE STATISTICS (interviewed only)"
+    display as text "=========================================="
 
-* ============================================================================
-* 6. SIMPLE REGRESSION EXAMPLE
-* ============================================================================
-* OLS regression of self-rated health on demographics.
-* This is purely illustrative. For a real analysis you would:
-*   - Consider the panel structure (fixed effects, random effects)
-*   - Use survey weights
-*   - Think carefully about functional form and controls
-*
-* Self-rated health: 1=excellent, 2=very good, 3=good, 4=fair, 5=poor
-* Higher values = worse health
+    summarize ragey_b female rshlt rcesd rbmi rconde ///
+        rhosp radl5a riadl5a rmobila hitot hatotb ///
+        if inw == 1, detail
 
-display as text _newline "=========================================="
-display as text "   SIMPLE REGRESSION EXAMPLE"
-display as text "=========================================="
+    tabstat rshlt if inw == 1, by(wave) statistics(mean sd n) format(%9.2f)
+    tabstat rcesd if inw == 1, by(wave) statistics(mean sd n) format(%9.2f)
+    tabstat rbmi if inw == 1, by(wave) statistics(mean sd n) format(%9.1f)
 
-* --- 6a. OLS (pooled, no panel structure) ------------------------------------
-display as text _newline "--- OLS: Self-rated health on demographics ---"
-reg rshlt ragey_b female i.educ_cat i.race_eth if inw == 1
+    display as text _newline "=========================================="
+    display as text "   SIMPLE REGRESSION EXAMPLE"
+    display as text "=========================================="
 
-* --- 6b. OLS with survey weights ---------------------------------------------
-display as text _newline "--- Weighted OLS: Self-rated health on demographics ---"
-reg rshlt ragey_b female i.educ_cat i.race_eth if inw == 1 [pw=rwtresp]
+    reg rshlt ragey_b female i.educ_cat i.race_eth if inw == 1
+    reg rshlt ragey_b female i.educ_cat i.race_eth if inw == 1 [pw=rwtresp]
+    xtreg rshlt ragey_b i.marital if inw == 1, fe
+}
+else {
+    display as text _newline "Example tables and regressions are off by default."
+    display as text "Set global hrs_run_examples 1 before running this script to print them."
+}
 
-* --- 6c. Panel fixed effects (individual FE) ---------------------------------
-* This controls for all time-invariant individual characteristics
-* (so gender, education, and race drop out).
-display as text _newline "--- Fixed effects: Self-rated health on age ---"
-xtreg rshlt ragey_b i.marital if inw == 1, fe
-
-display as text _newline(2) "=========================================="
-display as text "   STARTER SCRIPT COMPLETE"
-display as text "=========================================="
-display as text "You now have:"
-display as text "  - Cleaned demographic variables: female, educ_cat, race_eth, marital"
-display as text "  - Descriptive statistics by wave, cohort, and demographics"
-display as text "  - Regression examples (OLS, weighted OLS, panel FE)"
-display as text ""
-display as text "Next steps for your own analysis:"
-display as text "  - Choose your outcome variable(s) and clean them"
-display as text "  - Decide on your identification strategy"
-display as text "  - Consider panel methods (FE, RE, dynamic models)"
-display as text "  - Use appropriate survey weights"
-display as text "  - Consult the codebook for variable details"
-
-********************************************************************************
-* NOTES FOR USERS:
-*
-* 1. SURVEY WEIGHTS: The rwtresp weights make estimates representative of the
-*    U.S. population aged 50+. For cross-sectional analyses within a single
-*    wave, use the wave-specific weight. For longitudinal analyses, weight
-*    selection is more complex -- consult the HRS documentation.
-*
-*
-* 2. CLUSTERING: Standard errors should be clustered at the individual level
-*    for panel analyses (vce(cluster hhidpn)) or at the household level
-*    (create a household ID and cluster on that).
-*
-* 3. COGNITION: Cognition variables changed in Wave 14 (2018) when some
-*    interviews moved to web-based format. Be cautious about trends
-*    spanning this change.
-********************************************************************************
+display as text _newline "Starter HRS cleaning complete."

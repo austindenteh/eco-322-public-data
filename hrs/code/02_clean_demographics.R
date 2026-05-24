@@ -1,353 +1,367 @@
 ################################################################################
 # 02_clean_demographics.R
 #
-# Purpose: Load the reshaped RAND HRS long-format dataset and demonstrate:
-#          (1) Cleaning basic demographic variables for analysis
-#          (2) Handling HRS missing values
-#          (3) Producing descriptive statistics / sanity checks
-#          (4) Running a simple regression
+# Purpose: Load the reshaped RAND HRS long-format dataset, create starter
+#          demographic variables, save an analysis-ready file, and optionally
+#          run descriptive tables/regression examples.
 #
-# Input:   [hrs_root]/output/hrs_long.rds  (from 01_reshape_and_save.R)
-# Output:  Descriptive stats and regression output printed to console
+# Input:   output/hrs_long.rds  (from 01_reshape_and_save.R)
+# Output:  output/hrs_demographics_clean.rds
+#          output/hrs_demographics_clean_from_r.dta (optional)
 #
-# Usage:   Update the hrs_root path below, then source this file:
-#            source("/path/to/hrs/code/02_clean_demographics.R")
-#
-# Required packages: haven, dplyr, tidyr, broom
-#   Install with: install.packages(c("haven", "dplyr", "tidyr", "broom"))
-#
-# Notes:   This is a STARTER script. It demonstrates how to clean a subset
-#          of variables. Users should extend this for their own analysis.
-#
-# Author:  Auto-generated starter script
-# Date:    February 2026
+# Usage:   Run from hrs/, hrs/code/, from the repo root, or set
+#          hrs_root_manual / HRS_ROOT.
 ################################################################################
 
-# --- Load packages -----------------------------------------------------------
 library(haven)
 library(dplyr)
 library(tidyr)
-library(broom)
 
-# =============================================================================
-# 1. LOAD THE RESHAPED DATA
-# =============================================================================
+# ============================================================================
+# 1. DEFINE PATHS AND OPTIONS
+# ============================================================================
 
-# Set the root directory for the HRS folder.
-# Users should update this path to match their system.
-hrs_root <- "/Users/audenteh/Library/CloudStorage/Dropbox/research-db/github/eco-322-public-data/hrs"
+# Optional manual path override. Leave as NULL for auto-detection.
+# Example:
+# hrs_root_manual <- "/Users/yourname/path/to/econ-data-starters/hrs"
+if (!exists("hrs_root_manual", inherits = TRUE)) {
+  hrs_root_manual <- NULL
+}
 
-hrs <- readRDS(file.path(hrs_root, "output", "hrs_long.rds"))
-cat(sprintf("Loaded %d person-wave observations.\n", nrow(hrs)))
+get_current_script_dir <- function() {
+  command_args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- grep("^--file=", command_args, value = TRUE)
+  if (length(file_arg) > 0) {
+    script_path <- sub("^--file=", "", file_arg[[1]])
+    return(dirname(normalizePath(script_path, winslash = "/", mustWork = FALSE)))
+  }
 
-# =============================================================================
-# 2. UNDERSTAND THE PANEL STRUCTURE
-# =============================================================================
-# The HRS is an UNBALANCED panel: not all respondents are in all waves.
-# `inw` indicates whether the respondent was interviewed (1 = yes, 0 = no).
+  frame_paths <- vapply(sys.frames(), function(frame) {
+    if (!is.null(frame$ofile)) frame$ofile else ""
+  }, character(1))
+  frame_paths <- frame_paths[nzchar(frame_paths)]
+  if (length(frame_paths) > 0) {
+    return(dirname(normalizePath(tail(frame_paths, 1), winslash = "/", mustWork = FALSE)))
+  }
 
-cat("\n--- Response rates by wave ---\n")
-response_by_wave <- hrs %>%
-  group_by(wave) %>%
-  summarise(
-    n_total = n(),
-    n_interviewed = sum(inw == 1, na.rm = TRUE),
-    pct_interviewed = mean(inw == 1, na.rm = TRUE) * 100,
-    .groups = "drop"
+  ""
+}
+
+parent_paths <- function(path) {
+  if (!nzchar(path) || !dir.exists(path)) return(character())
+  path <- normalizePath(path, winslash = "/", mustWork = TRUE)
+  paths <- path
+
+  repeat {
+    parent <- dirname(path)
+    if (identical(parent, path)) break
+    paths <- c(paths, parent)
+    path <- parent
+  }
+
+  paths
+}
+
+resolve_hrs_root <- function(script_name) {
+  env_root <- Sys.getenv("HRS_ROOT", unset = "")
+
+  rstudio_script_dir <- ""
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    rstudio_script <- tryCatch(
+      rstudioapi::getSourceEditorContext()$path,
+      error = function(e) ""
+    )
+    if (nzchar(rstudio_script)) {
+      rstudio_script_dir <- dirname(rstudio_script)
+    }
+  }
+
+  search_roots <- c(getwd(), get_current_script_dir(), rstudio_script_dir)
+  search_paths <- unique(unlist(lapply(search_roots, parent_paths), use.names = FALSE))
+  candidates <- c(hrs_root_manual, env_root, search_paths, file.path(search_paths, "hrs"))
+  candidates <- unique(candidates[!is.na(candidates) & nzchar(candidates)])
+
+  for (path in candidates) {
+    path_norm <- normalizePath(path, winslash = "/", mustWork = FALSE)
+    if (file.exists(file.path(path_norm, "README.md")) &&
+        file.exists(file.path(path_norm, "code", script_name))) {
+      return(path_norm)
+    }
+  }
+
+  stop(
+    "Could not locate the hrs/ directory.\n",
+    "Run this script from hrs/, hrs/code/, from the repo root, ",
+    "or set hrs_root_manual / HRS_ROOT to the hrs path.\n",
+    paste0("Current working directory: ", getwd(), "\n"),
+    'Manual override in this script: hrs_root_manual <- "/path/to/hrs"\n',
+    'Manual override before sourcing: Sys.setenv(HRS_ROOT = "/path/to/hrs")',
+    call. = FALSE
   )
-print(response_by_wave, n = 16)
+}
 
-# How many waves does each respondent contribute?
-waves_per_person <- hrs %>%
-  group_by(hhidpn) %>%
-  summarise(total_waves = sum(inw == 1, na.rm = TRUE), .groups = "drop")
+hrs_root <- resolve_hrs_root("02_clean_demographics.R")
+cat(paste0("Using HRS root: ", hrs_root, "\n"))
 
-cat("\n--- Distribution of waves responded ---\n")
-print(table(waves_per_person$total_waves))
+if (!exists("hrs_input_basename", inherits = TRUE)) {
+  hrs_input_basename <- "hrs_long"
+}
+if (!exists("run_examples", inherits = TRUE)) {
+  run_examples <- FALSE
+}
+if (!exists("write_dta_export", inherits = TRUE)) {
+  write_dta_export <- FALSE
+}
+if (!exists("hrs_input_dir", inherits = TRUE)) {
+  hrs_input_dir <- file.path(hrs_root, "output")
+}
+if (!exists("hrs_output_dir", inherits = TRUE)) {
+  hrs_output_dir <- file.path(hrs_root, "output")
+}
 
-# =============================================================================
+in_rds <- file.path(hrs_input_dir, paste0(hrs_input_basename, ".rds"))
+in_dta <- file.path(hrs_input_dir, paste0(hrs_input_basename, ".dta"))
+out_rds <- file.path(hrs_output_dir, "hrs_demographics_clean.rds")
+out_dta <- file.path(hrs_output_dir, "hrs_demographics_clean_from_r.dta")
+dir.create(hrs_output_dir, showWarnings = FALSE, recursive = TRUE)
+
+# ============================================================================
+# 2. LOAD DATA
+# ============================================================================
+
+if (file.exists(in_rds)) {
+  hrs <- readRDS(in_rds)
+  cat(sprintf("Loaded %d person-wave observations from %s.\n", nrow(hrs), in_rds))
+} else if (file.exists(in_dta)) {
+  hrs <- read_dta(in_dta)
+  cat(sprintf("Loaded %d person-wave observations from %s.\n", nrow(hrs), in_dta))
+} else {
+  stop(
+    "Could not find a reshaped HRS file. Run 01_reshape_and_save first.\n",
+    "Expected one of:\n", in_rds, "\n", in_dta,
+    call. = FALSE
+  )
+}
+
+names(hrs) <- tolower(names(hrs))
+
+required_vars <- c(
+  "hhidpn", "wave", "year", "inw", "ragender", "raeduc", "raracem",
+  "rahispan", "rmstat", "hacohort"
+)
+missing_required <- setdiff(required_vars, names(hrs))
+if (length(missing_required) > 0) {
+  stop(
+    "The reshaped HRS file is missing variables required by this cleaner: ",
+    paste(missing_required, collapse = ", "),
+    call. = FALSE
+  )
+}
+
+# ============================================================================
 # 3. CLEAN DEMOGRAPHIC VARIABLES
-# =============================================================================
+# ============================================================================
 
-cat("\n--- Cleaning demographic variables ---\n")
+cat("Cleaning HRS demographic variables...\n")
 
 hrs <- hrs %>%
   mutate(
-    # --- 3a. Gender ---
-    # ragender: 1 = Male, 2 = Female (time-invariant)
     female = case_when(
       ragender == 1 ~ 0L,
       ragender == 2 ~ 1L,
       TRUE ~ NA_integer_
     ),
 
-    # --- 3b. Education (4 categories) ---
-    # raeduc: 1=Lt HS, 2=GED, 3=HS grad, 4=Some college, 5=College+
     educ_cat = case_when(
-      raeduc == 1              ~ "Less than HS",
-      raeduc %in% c(2, 3)     ~ "HS/GED",
-      raeduc == 4              ~ "Some college",
-      raeduc == 5              ~ "College+",
-      TRUE                     ~ NA_character_
+      raeduc == 1 ~ "Less than HS",
+      raeduc %in% c(2, 3) ~ "HS/GED",
+      raeduc == 4 ~ "Some college",
+      raeduc == 5 ~ "College+",
+      TRUE ~ NA_character_
     ),
-    educ_cat = factor(educ_cat,
-                      levels = c("Less than HS", "HS/GED",
-                                 "Some college", "College+")),
+    educ_cat = factor(
+      educ_cat,
+      levels = c("Less than HS", "HS/GED", "Some college", "College+")
+    ),
 
-    # --- 3c. Race/ethnicity (4 categories) ---
-    # raracem: 1=White, 2=Black, 3=Other
-    # rahispan: 0=Not Hispanic, 1=Hispanic
     race_eth = case_when(
-      rahispan == 1                       ~ "Hispanic",
-      rahispan == 0 & raracem == 1        ~ "White NH",
-      rahispan == 0 & raracem == 2        ~ "Black NH",
-      rahispan == 0 & raracem == 3        ~ "Other NH",
-      TRUE                                ~ NA_character_
+      rahispan == 1 ~ "Hispanic",
+      rahispan == 0 & raracem == 1 ~ "White NH",
+      rahispan == 0 & raracem == 2 ~ "Black NH",
+      rahispan == 0 & raracem == 3 ~ "Other NH",
+      TRUE ~ NA_character_
     ),
-    race_eth = factor(race_eth,
-                      levels = c("White NH", "Black NH",
-                                 "Hispanic", "Other NH")),
+    race_eth = factor(
+      race_eth,
+      levels = c("White NH", "Black NH", "Hispanic", "Other NH")
+    ),
 
-    # --- 3d. Marital status (4 categories) ---
-    # rmstat: 1-3 = married/partnered, 4-6 = sep/divorced, 7 = widowed, 8 = never
     marital = case_when(
-      rmstat %in% 1:3  ~ "Married/Partnered",
-      rmstat %in% 4:6  ~ "Sep/Divorced",
-      rmstat == 7       ~ "Widowed",
-      rmstat == 8       ~ "Never married",
-      TRUE              ~ NA_character_
+      rmstat %in% 1:3 ~ "Married/Partnered",
+      rmstat %in% 4:6 ~ "Sep/Divorced",
+      rmstat == 7 ~ "Widowed",
+      rmstat == 8 ~ "Never married",
+      TRUE ~ NA_character_
     ),
-    marital = factor(marital,
-                     levels = c("Married/Partnered", "Sep/Divorced",
-                                "Widowed", "Never married")),
+    marital = factor(
+      marital,
+      levels = c("Married/Partnered", "Sep/Divorced", "Widowed", "Never married")
+    ),
 
-    # --- 3e. Cohort labels ---
     cohort_label = case_when(
       hacohort %in% c(0, 1) ~ "AHEAD",
-      hacohort == 2          ~ "CODA",
-      hacohort == 3          ~ "HRS",
-      hacohort == 4          ~ "War Baby",
-      hacohort == 5          ~ "Early Boomer",
-      hacohort == 6          ~ "Mid Boomer",
-      hacohort == 7          ~ "Late Boomer",
-      hacohort == 8          ~ "Early Gen X",
-      TRUE                   ~ NA_character_
+      hacohort == 2 ~ "CODA",
+      hacohort == 3 ~ "HRS",
+      hacohort == 4 ~ "War Baby",
+      hacohort == 5 ~ "Early Boomer",
+      hacohort == 6 ~ "Mid Boomer",
+      hacohort == 7 ~ "Late Boomer",
+      hacohort == 8 ~ "Early Gen X",
+      TRUE ~ NA_character_
     ),
-    cohort_label = factor(cohort_label,
-                          levels = c("HRS", "AHEAD", "CODA", "War Baby",
-                                     "Early Boomer", "Mid Boomer",
-                                     "Late Boomer", "Early Gen X"))
-  )
-
-cat("Created: female, educ_cat, race_eth, marital, cohort_label\n")
-
-# =============================================================================
-# 4. HANDLE MISSING VALUES
-# =============================================================================
-# When loaded via haven::read_dta(), Stata extended missing values become
-# tagged NAs. For most purposes, they behave just like regular NA.
-#
-# If you need to distinguish WHY a value is missing:
-#   haven::is_tagged_na(x, "d")  # TRUE for .D (don't know)
-#   haven::is_tagged_na(x, "r")  # TRUE for .R (refused)
-#   haven::na_tag(x)             # Returns the tag letter
-#
-# For this starter script, we simply treat all NA as missing.
-
-cat("\n--- Missing value patterns for self-rated health (rshlt) ---\n")
-shlt_missing <- hrs %>%
-  filter(wave >= 4) %>%  # All cohorts present from wave 4
-
-  group_by(wave) %>%
-  summarise(
-    n_total = n(),
-    n_valid = sum(!is.na(rshlt)),
-    n_missing = sum(is.na(rshlt)),
-    pct_missing = round(mean(is.na(rshlt)) * 100, 1),
-    .groups = "drop"
-  )
-print(shlt_missing, n = 16)
-
-# =============================================================================
-# 5. DESCRIPTIVE STATISTICS
-# =============================================================================
-# Restrict to interviewed respondents for meaningful statistics.
-
-interviewed <- hrs %>% filter(inw == 1)
-
-cat("\n==========================================\n")
-cat("   DESCRIPTIVE STATISTICS (interviewed only)\n")
-cat("==========================================\n")
-
-# --- 5a. Summary statistics for key variables --------------------------------
-cat("\n--- Summary statistics (all waves pooled) ---\n")
-key_vars <- c("ragey_b", "female", "rshlt", "rcesd", "rbmi", "rconde",
-              "rhosp", "radl5a", "riadl5a", "rmobila", "hitot", "hatotb")
-
-summary_stats <- interviewed %>%
-  summarise(across(all_of(key_vars),
-                   list(n = ~ sum(!is.na(.)),
-                        mean = ~ mean(., na.rm = TRUE),
-                        sd = ~ sd(., na.rm = TRUE),
-                        min = ~ min(., na.rm = TRUE),
-                        max = ~ max(., na.rm = TRUE)),
-                   .names = "{.col}__{.fn}")) %>%
-  pivot_longer(everything(),
-               names_to = c("variable", "stat"),
-               names_sep = "__") %>%
-  pivot_wider(names_from = stat, values_from = value)
-
-print(summary_stats, n = 20)
-
-# --- 5b. Self-rated health by wave -------------------------------------------
-cat("\n--- Self-rated health by wave ---\n")
-shlt_by_wave <- interviewed %>%
-  group_by(wave, year) %>%
-  summarise(
-    n = sum(!is.na(rshlt)),
-    mean_shlt = round(mean(rshlt, na.rm = TRUE), 2),
-    sd_shlt = round(sd(rshlt, na.rm = TRUE), 2),
-    .groups = "drop"
-  )
-print(shlt_by_wave, n = 16)
-
-# --- 5c. CES-D depression by wave -------------------------------------------
-cat("\n--- CES-D depression score by wave ---\n")
-cesd_by_wave <- interviewed %>%
-  group_by(wave, year) %>%
-  summarise(
-    n = sum(!is.na(rcesd)),
-    mean_cesd = round(mean(rcesd, na.rm = TRUE), 2),
-    sd_cesd = round(sd(rcesd, na.rm = TRUE), 2),
-    .groups = "drop"
-  )
-print(cesd_by_wave, n = 16)
-
-# --- 5d. Demographics by gender and race/ethnicity ---------------------------
-cat("\n--- Self-rated health by gender ---\n")
-interviewed %>%
-  filter(!is.na(rshlt), !is.na(female)) %>%
-  group_by(Gender = ifelse(female == 1, "Female", "Male")) %>%
-  summarise(
-    n = n(),
-    mean_shlt = round(mean(rshlt), 2),
-    .groups = "drop"
+    cohort_label = factor(
+      cohort_label,
+      levels = c("HRS", "AHEAD", "CODA", "War Baby", "Early Boomer",
+                 "Mid Boomer", "Late Boomer", "Early Gen X")
+    )
   ) %>%
-  print()
+  group_by(hhidpn) %>%
+  mutate(total_waves = sum(inw == 1, na.rm = TRUE)) %>%
+  ungroup()
 
-cat("\n--- Self-rated health by race/ethnicity ---\n")
-interviewed %>%
-  filter(!is.na(rshlt), !is.na(race_eth)) %>%
-  group_by(race_eth) %>%
-  summarise(
-    n = n(),
-    mean_shlt = round(mean(rshlt), 2),
-    .groups = "drop"
-  ) %>%
-  print()
+cat("Created: female, educ_cat, race_eth, marital, cohort_label, total_waves\n")
 
-# --- 5e. Cohort distribution in Wave 16 (2022) -------------------------------
-cat("\n--- Cohort distribution in Wave 16 (2022) ---\n")
-interviewed %>%
-  filter(wave == 16) %>%
-  count(cohort_label) %>%
-  mutate(pct = round(n / sum(n) * 100, 1)) %>%
-  print()
+# ============================================================================
+# 4. SAVE CLEANED DATA
+# ============================================================================
 
-# =============================================================================
-# 6. SIMPLE REGRESSION EXAMPLE
-# =============================================================================
-# OLS regression of self-rated health on demographics.
-# This is purely illustrative. For a real analysis you would:
-#   - Consider the panel structure (fixed effects, random effects)
-#   - Use survey weights (see the `survey` package)
-#   - Think carefully about functional form and controls
+saveRDS(hrs, out_rds)
+cat(sprintf("Saved: %s\n", out_rds))
 
-cat("\n==========================================\n")
-cat("   SIMPLE REGRESSION EXAMPLE\n")
-cat("==========================================\n")
-
-# --- 6a. OLS (pooled, no panel structure) ------------------------------------
-cat("\n--- OLS: Self-rated health on demographics ---\n")
-ols_model <- lm(rshlt ~ ragey_b + female + educ_cat + race_eth,
-                data = interviewed)
-print(summary(ols_model))
-
-# Tidy output with broom
-cat("\n--- Tidy coefficient table ---\n")
-print(tidy(ols_model, conf.int = TRUE) %>%
-        mutate(across(where(is.numeric), ~ round(., 4))))
-
-# --- 6b. Weighted OLS --------------------------------------------------------
-cat("\n--- Weighted OLS: Self-rated health on demographics ---\n")
-wols_model <- lm(rshlt ~ ragey_b + female + educ_cat + race_eth,
-                 data = interviewed,
-                 weights = rwtresp)
-print(tidy(wols_model, conf.int = TRUE) %>%
-        mutate(across(where(is.numeric), ~ round(., 4))))
-
-# --- 6c. Panel fixed effects (within estimator) ------------------------------
-# Using the plm package is recommended for panel econometrics in R.
-# Here we show a simple approach using lm() with individual dummies.
-# For large datasets, use the `fixest` package instead:
-#   library(fixest)
-#   fe_model <- feols(rshlt ~ ragey_b + marital | hhidpn, data = interviewed)
-
-cat("\n--- Note: For panel fixed effects in R, we recommend the `fixest` package:\n")
-cat("    library(fixest)\n")
-cat("    fe_model <- feols(rshlt ~ ragey_b + marital | hhidpn, data = interviewed)\n")
-cat("    summary(fe_model)\n")
-cat("  This is much faster than lm() with factor(hhidpn) for 45K+ individuals.\n")
-
-# Quick demo if fixest is available
-if (requireNamespace("fixest", quietly = TRUE)) {
-  cat("\n--- Fixed effects: Self-rated health on age and marital status ---\n")
-  fe_model <- fixest::feols(rshlt ~ ragey_b + marital | hhidpn,
-                            data = interviewed)
-  print(summary(fe_model))
+if (write_dta_export) {
+  tryCatch({
+    write_dta(hrs, out_dta)
+    cat(sprintf("Saved optional Stata export: %s\n", out_dta))
+  }, error = function(e) {
+    cat(sprintf("Warning: Could not save .dta file: %s\n", e$message))
+  })
 } else {
-  cat("  (Install fixest to run the FE example: install.packages('fixest'))\n")
+  cat("Skipped optional Stata export. Set write_dta_export <- TRUE to create output/hrs_demographics_clean_from_r.dta.\n")
 }
 
-cat("\n==========================================\n")
-cat("   STARTER SCRIPT COMPLETE\n")
-cat("==========================================\n")
-cat("You now have:\n")
-cat("  - Cleaned demographic variables: female, educ_cat, race_eth, marital\n")
-cat("  - Descriptive statistics by wave, cohort, and demographics\n")
-cat("  - Regression examples (OLS, weighted OLS, panel FE)\n")
-cat("\nNext steps for your own analysis:\n")
-cat("  - Choose your outcome variable(s) and clean them\n")
-cat("  - Decide on your identification strategy\n")
-cat("  - Consider panel methods (FE, RE, dynamic models)\n")
-cat("  - Use appropriate survey weights (see the `survey` package)\n")
-cat("  - Consult the codebook for variable details\n")
+# ============================================================================
+# 5. OPTIONAL DESCRIPTIVE TABLES AND REGRESSIONS
+# ============================================================================
 
-################################################################################
-# NOTES FOR USERS:
-#
-# 1. SURVEY WEIGHTS: Use the `survey` package for proper weighted estimation:
-#      library(survey)
-#      des <- svydesign(ids = ~1, weights = ~rwtresp, data = interviewed)
-#      svymean(~rshlt, des, na.rm = TRUE)
-#      svyglm(rshlt ~ ragey_b + female, design = des)
-#
-# 2. PANEL METHODS: Key R packages for panel econometrics:
-#    - `fixest`: Very fast fixed effects (recommended)
-#    - `plm`: Classic panel data econometrics
-#    - `lfe`: Linear models with multiple fixed effects
-#    Example with fixest:
-#      library(fixest)
-#      feols(rshlt ~ ragey_b + marital | hhidpn + wave, data = interviewed)
-#
-# 3. ATTRITION: The HRS has non-trivial attrition. Respondents who die or
-#    become too ill are more likely to drop out. Consider inverse probability
-#    weighting or Heckman selection models.
-#
-# 4. MISSING VALUES: haven::read_dta() preserves Stata's extended missing
-#    value tags. For most purposes, they behave as regular NA. To check tags:
-#      haven::na_tag(hrs$rshlt)  # returns tag letters ("d", "r", etc.)
-#
-# 5. COGNITION: From Wave 14 (2018), some cognition measures were collected
-#    via web interviews, which may not be directly comparable to phone/in-person.
-################################################################################
+if (run_examples) {
+  cat("\n--- Response rates by wave ---\n")
+  response_by_wave <- hrs %>%
+    group_by(wave) %>%
+    summarise(
+      n_total = n(),
+      n_interviewed = sum(inw == 1, na.rm = TRUE),
+      pct_interviewed = mean(inw == 1, na.rm = TRUE) * 100,
+      .groups = "drop"
+    )
+  print(response_by_wave, n = 16)
+
+  cat("\n--- Distribution of waves responded ---\n")
+  waves_per_person <- hrs %>% distinct(hhidpn, total_waves)
+  print(table(waves_per_person$total_waves))
+
+  if ("rshlt" %in% names(hrs)) {
+    cat("\n--- Missing value patterns for self-rated health (rshlt) ---\n")
+    shlt_missing <- hrs %>%
+      filter(wave >= 4) %>%
+      group_by(wave) %>%
+      summarise(
+        n_total = n(),
+        n_valid = sum(!is.na(rshlt)),
+        n_missing = sum(is.na(rshlt)),
+        pct_missing = round(mean(is.na(rshlt)) * 100, 1),
+        .groups = "drop"
+      )
+    print(shlt_missing, n = 16)
+  }
+
+  interviewed <- hrs %>% filter(inw == 1)
+
+  cat("\n==========================================\n")
+  cat("   DESCRIPTIVE STATISTICS (interviewed only)\n")
+  cat("==========================================\n")
+
+  key_vars <- intersect(
+    c("ragey_b", "female", "rshlt", "rcesd", "rbmi", "rconde",
+      "rhosp", "radl5a", "riadl5a", "rmobila", "hitot", "hatotb"),
+    names(interviewed)
+  )
+
+  if (length(key_vars) > 0) {
+    summary_stats <- interviewed %>%
+      summarise(across(
+        all_of(key_vars),
+        list(
+          n = ~ sum(!is.na(.)),
+          mean = ~ mean(., na.rm = TRUE),
+          sd = ~ sd(., na.rm = TRUE),
+          min = ~ suppressWarnings(min(., na.rm = TRUE)),
+          max = ~ suppressWarnings(max(., na.rm = TRUE))
+        ),
+        .names = "{.col}__{.fn}"
+      )) %>%
+      pivot_longer(everything(), names_to = c("variable", "stat"), names_sep = "__") %>%
+      pivot_wider(names_from = stat, values_from = value)
+    print(summary_stats, n = 20)
+  }
+
+  if ("rshlt" %in% names(interviewed)) {
+    cat("\n--- Self-rated health by wave ---\n")
+    shlt_by_wave <- interviewed %>%
+      group_by(wave, year) %>%
+      summarise(
+        n = sum(!is.na(rshlt)),
+        mean_shlt = round(mean(rshlt, na.rm = TRUE), 2),
+        sd_shlt = round(sd(rshlt, na.rm = TRUE), 2),
+        .groups = "drop"
+      )
+    print(shlt_by_wave, n = 16)
+  }
+
+  cat("\n--- Cohort distribution in Wave 16 (2022) ---\n")
+  interviewed %>%
+    filter(wave == 16) %>%
+    count(cohort_label) %>%
+    mutate(pct = round(n / sum(n) * 100, 1)) %>%
+    print()
+
+  if (all(c("rshlt", "ragey_b", "female", "educ_cat", "race_eth", "rwtresp") %in% names(interviewed))) {
+    if (!requireNamespace("broom", quietly = TRUE)) {
+      stop("Install the broom package or set run_examples <- FALSE.", call. = FALSE)
+    }
+
+    cat("\n==========================================\n")
+    cat("   SIMPLE REGRESSION EXAMPLE\n")
+    cat("==========================================\n")
+
+    ols_model <- lm(rshlt ~ ragey_b + female + educ_cat + race_eth,
+                    data = interviewed)
+    print(summary(ols_model))
+
+    cat("\n--- Tidy coefficient table ---\n")
+    print(broom::tidy(ols_model, conf.int = TRUE) %>%
+            mutate(across(where(is.numeric), ~ round(., 4))))
+
+    cat("\n--- Weighted OLS: Self-rated health on demographics ---\n")
+    wols_model <- lm(rshlt ~ ragey_b + female + educ_cat + race_eth,
+                     data = interviewed,
+                     weights = rwtresp)
+    print(broom::tidy(wols_model, conf.int = TRUE) %>%
+            mutate(across(where(is.numeric), ~ round(., 4))))
+  } else {
+    cat("\nSkipping regression example because one or more example variables are missing.\n")
+  }
+} else {
+  cat("Example tables and regressions are off by default. Set run_examples <- TRUE near the top of this script to run them.\n")
+}
+
+cat("\nStarter HRS cleaning complete.\n")

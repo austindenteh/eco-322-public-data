@@ -79,6 +79,10 @@ local post2019_years "2019 2020 2021 2022 2023 2024"
 if "$nhis_post2019_years" != "" {
     local post2019_years "$nhis_post2019_years"
 }
+local post2019_years : list retok post2019_years
+if inlist(lower(trim("`post2019_years'")), "none", "skip", ".") {
+    local post2019_years ""
+}
 
 * --- Pre-2019 years (OPTIONAL — uncomment to include) ---
 * Pre-2019 years require .DAT files + CDC do-files in each year folder.
@@ -93,15 +97,20 @@ local pre2019_years ""
 if "$nhis_pre2019_years" != "" {
     local pre2019_years "$nhis_pre2019_years"
 }
+local pre2019_years : list retok pre2019_years
+if inlist(lower(trim("`pre2019_years'")), "none", "skip", ".") {
+    local pre2019_years ""
+}
 
 * NOTE: Years 2015-2018 follow the pre-2019 design but some components
 *       arrive as zipped ASCII or CSV files. This script extracts component
 *       archives when needed and uses CSV fallback when fixed-width ASCII is
 *       not available.
 
-* --- Optional low-memory mode ---
-* Used by 01_load_and_append_optional_low_memory.do. The regular loader keeps
-* all columns unless global nhis_keep_starter_vars_only is set to 1.
+* --- Advanced compact mode ---
+* The regular loader keeps all columns unless global nhis_keep_starter_vars_only
+* is set to 1. For the reviewed low-memory workflow, use the standalone
+* 01_load_and_append_optional_low_memory.do script.
 local keep_starter_vars_only = 0
 if "$nhis_keep_starter_vars_only" == "1" {
     local keep_starter_vars_only = 1

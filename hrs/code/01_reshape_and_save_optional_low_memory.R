@@ -1,25 +1,16 @@
 ################################################################################
-# 01_reshape_and_save.R
+# 01_reshape_and_save_optional_low_memory.R
 #
-# Purpose: Load the RAND HRS Longitudinal File 2022 (V1) in wide format,
-#          reshape wave-varying variables from wide to long panel format,
-#          and save.
+# Purpose: Standalone low-memory HRS loader. Reads only selected RAND HRS raw
+#          columns, reshapes selected waves from wide to long, and saves the
+#          compact long starter dataset.
 #
-# Input:   data/raw/randhrs1992_2022v1.dta  (wide format, one row per person)
-# Output:  output/hrs_long.rds              (R native format)
-#          output/hrs_long_from_r.dta       (optional Stata export)
-#          output/hrs_long_from_r.csv       (optional CSV export)
+# Input:   data/raw/randhrs1992_2022v1.dta
+# Output:  output/hrs_long.rds
+#          optional output/hrs_long_from_r.dta / hrs_long_from_r.csv
 #
 # Usage:   Run from hrs/, hrs/code/, from the repo root, or set
 #          hrs_root_manual / HRS_ROOT.
-#
-# Low-memory build:
-#          Run the standalone code/01_reshape_and_save_optional_low_memory.R.
-#          Advanced users can still set keep_starter_vars_only <- TRUE before
-#          sourcing this full loader.
-#
-# Required packages: haven, dplyr, tidyr, stringr
-#   Install with: install.packages(c("haven", "dplyr", "tidyr", "stringr"))
 ################################################################################
 
 library(haven)
@@ -116,9 +107,8 @@ normalize_var_names <- function(x) {
   unique(tolower(x))
 }
 
-if (!exists("keep_starter_vars_only", inherits = TRUE)) {
-  keep_starter_vars_only <- FALSE
-}
+# Low-memory mode is always on in this standalone optional loader.
+keep_starter_vars_only <- TRUE
 if (!exists("extra_time_invariant_vars", inherits = TRUE)) {
   extra_time_invariant_vars <- character(0)
 }
@@ -137,6 +127,14 @@ if (!exists("hrs_output_dir", inherits = TRUE)) {
 if (!exists("hrs_output_basename", inherits = TRUE)) {
   hrs_output_basename <- "hrs_long"
 }
+# ---------------------------------------------------------------------------
+# USER SETTINGS
+# ---------------------------------------------------------------------------
+# Leave hrs_waves and hrs_years as NULL to keep all 16 waves. Use ONE or both
+# if you want a smaller build. If both are set, the selected waves are combined.
+# Examples:
+# hrs_waves <- c(14, 15, 16)
+# hrs_years <- c(2018, 2020, 2022)
 if (!exists("hrs_waves", inherits = TRUE)) {
   hrs_waves <- NULL
 }
@@ -144,7 +142,12 @@ if (!exists("hrs_years", inherits = TRUE)) {
   hrs_years <- NULL
 }
 
-hrs_root <- resolve_hrs_root("01_reshape_and_save.R")
+# Add variables beyond the starter set here.
+# Examples:
+# extra_time_invariant_vars <- c("raedyrs")
+# extra_wave_stubs <- c("rcovrt", "scovrt")
+
+hrs_root <- resolve_hrs_root("01_reshape_and_save_optional_low_memory.R")
 cat(paste0("Using HRS root: ", hrs_root, "\n"))
 
 raw_data <- file.path(hrs_root, "data", "raw", "randhrs1992_2022v1.dta")
@@ -509,15 +512,10 @@ cat("Next step: run 02_clean_demographics.R\n")
 ################################################################################
 # NOTES FOR USERS:
 #
-# 1. The default script reshapes every R/H/S wave-prefixed variable, the INW
-#    indicators, and selected suffix-numbered death/admin variables.
+# 1. This standalone optional script reads only the selected starter columns,
+#    requested extras, and selected waves before reshaping.
 #
-# 2. The full reshape uses substantial memory. For the reviewed smaller
-#    starter dataset, run code/01_reshape_and_save_optional_low_memory.R.
-#    Advanced users can also set:
-#      keep_starter_vars_only <- TRUE
-#      hrs_waves <- c(14, 15, 16)        # or hrs_years <- c(2018, 2020, 2022)
-#      extra_time_invariant_vars <- c("your_stable_variable")
+# 2. Use long-format stubs for wave-varying extras, for example:
 #      extra_wave_stubs <- c("rcovrt", "scovrt")
 #
 # 3. haven::read_dta() preserves Stata extended missing values as tagged NAs.

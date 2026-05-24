@@ -1,29 +1,29 @@
 ********************************************************************************
 * 01_load_and_append_optional_low_memory.do
 *
-* Purpose: Optional low-memory entry point for the NHIS starter.
-*          Runs 01_load_and_append.do with starter-variable mode enabled, so
-*          full 2004-2024 builds keep only the columns needed by
-*          02_clean_and_analyze.do plus user-requested extras.
-*
-* Important: This script reuses the main NHIS loader and harmonization logic.
-*            It does NOT import every raw variable. If you need most raw NHIS
-*            columns, use 01_load_and_append.do without low-memory mode.
+* Purpose: Standalone low-memory NHIS loader. Loads NHIS adult and child files,
+*          harmonizes names across the 2019 redesign, and keeps only the
+*          starter variables needed by 02_clean_and_analyze.do plus any
+*          user-requested extras.
 *
 * Input:   data/NHIS YYYY/ folders
 * Output:  output/nhis_adult.dta
 *          output/nhis_child.dta
 *
-* Usage:   Run from nhis/, from nhis/code/, from the repo root, or set
-*          global nhis_root.
-*
-* Author:  Austin Denteh (legacy code), Claude Code, and Codex
-* Date:    May 2026
+* Usage:   Run from nhis/, nhis/code/, from the repo root, or set global
+*          nhis_root.
 ********************************************************************************
 
 clear all
 set more off
+set maxvar 32767
 
+* ============================================================================
+* 1. DEFINE PATHS AND YEAR RANGE
+* ============================================================================
+* Auto-detect the dataset root from global nhis_root, the dataset folder,
+* code/, or the repo root.
+*
 * Optional manual path override. Uncomment and edit if auto-detection fails:
 * global nhis_root "/Users/yourname/path/to/econ-data-starters/nhis"
 * Then run: do "$nhis_root/code/01_load_and_append_optional_low_memory.do"
@@ -48,36 +48,1144 @@ else {
     error 601
 }
 
-* Default to the full NHIS span in the optional low-memory entry point.
-* Override these globals before running this script if you want a smaller test.
-if "$nhis_lm_default_years" == "" {
-    global nhis_lm_default_years "1"
+cd "$nhis_root"
+local output_dir "output"
+if "$nhis_output_dir" != "" {
+    local output_dir "$nhis_output_dir"
 }
-if "$nhis_lm_default_years" != "0" & "$nhis_pre2019_years" == "" {
-    global nhis_pre2019_years "2004 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2017 2018"
+capture mkdir "`output_dir'"
+
+* --- USER SETTINGS: years and extras ---------------------------------------
+* Low-memory defaults to the full reviewed NHIS span. Edit these locals or set
+* globals before running this script if you want a smaller build.
+*
+* --- Post-2019 years (redesigned, CSV format) ---
+local post2019_years "2019 2020 2021 2022 2023 2024"
+if "$nhis_post2019_years" != "" {
+    local post2019_years "$nhis_post2019_years"
 }
-if "$nhis_lm_default_years" != "0" & "$nhis_post2019_years" == "" {
-    global nhis_post2019_years "2019 2020 2021 2022 2023 2024"
+local post2019_years : list retok post2019_years
+if inlist(lower(trim("`post2019_years'")), "none", "skip", ".") {
+    local post2019_years ""
 }
 
-* Enable low-memory mode in the main loader. Add stable-name extras or alias
-* families before running this script. Examples:
-*
-*   global nhis_extra_keep_vars "regionbr_a plborn_a"
-*
-*   global nhis_extra_var_families ///
-*       `" "health_status_raw:phstat_a phstat_c phstat" "'
-*
-* Alias families merge columns by name only. If coding or meanings differ
-* across eras, harmonize that added variable later.
-global nhis_keep_starter_vars_only 1
-local _extra_keep_vars "$nhis_extra_keep_vars"
-if trim(`"`_extra_keep_vars'"') == "" {
-    global nhis_extra_keep_vars ""
+* --- Pre-2019 years ---------------------------------------------------------
+* Pre-2019 years require .DAT files + CDC do-files in each year folder.
+local pre2019_years "2004 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2017 2018"
+if "$nhis_pre2019_years" != "" {
+    local pre2019_years "$nhis_pre2019_years"
 }
-local _extra_var_families `"$nhis_extra_var_families"'
-if trim(`"`_extra_var_families'"') == "" {
-    global nhis_extra_var_families ""
+local pre2019_years : list retok pre2019_years
+if inlist(lower(trim("`pre2019_years'")), "none", "skip", ".") {
+    local pre2019_years ""
 }
 
-do "$nhis_root/code/01_load_and_append.do"
+* NOTE: Years 2015-2018 follow the pre-2019 design but some components
+*       arrive as zipped ASCII or CSV files. This script extracts component
+*       archives when needed and uses CSV fallback when fixed-width ASCII is
+*       not available.
+
+* Low-memory mode is always on in this standalone optional loader.
+local keep_starter_vars_only = 1
+
+local adult_starter_vars "srvy_yr hhx era_post2019 agep_a sex_a hisp_a raceallp_a educ_a citizenp_a notcov_a medicare_a medicaid_a private_a phstat_a pdmed12m_a pnmed12m_a hypev_a chlev_a chdev_a angev_a miev_a strev_a asev_a canev_a dibev_a copdev_a arthev_a depev_a anxev_a phqcat_a gadcat_a bmicat_a ratcat_a incgrp_a ernyr_a wtfa_a pstrat ppsu"
+local child_starter_vars "srvy_yr hhx era_post2019 agep_c sex_c hisp_c raceallp_c notcov_c medicare_c medicaid_c private_c phstat_c wtfa_c pstrat ppsu"
+local extra_keep_vars "$nhis_extra_keep_vars"
+local extra_var_families `"$nhis_extra_var_families"'
+
+local n_extra_families = 0
+local extra_family_keep_vars
+if trim(`"`extra_var_families'"') != "" {
+    display as text "[INFO] extra_var_families only merge raw aliases into one column."
+    display as text "[INFO] If coding or meanings change across years, harmonize that added variable later."
+
+    foreach family_def of local extra_var_families {
+        gettoken family_name alias_vars : family_def, parse(":")
+        local family_name = lower(trim("`family_name'"))
+        local alias_vars : subinstr local alias_vars ":" "", all
+        local alias_vars : list retok alias_vars
+
+        if trim("`family_name'") == "" {
+            display as error "Each extra_var_families entry needs a merged variable name."
+            error 198
+        }
+        if trim("`alias_vars'") == "" {
+            display as error "extra_var_families entry `family_name' is missing its alias list."
+            error 198
+        }
+
+        local n_extra_families = `n_extra_families' + 1
+        local extra_family_name`n_extra_families' "`family_name'"
+        local extra_family_aliases`n_extra_families' "`alias_vars'"
+        local extra_family_keep_vars "`extra_family_keep_vars' `family_name' `alias_vars'"
+    }
+}
+
+local adult_low_memory_vars "`adult_starter_vars' `extra_keep_vars' `extra_family_keep_vars'"
+local child_low_memory_vars "`child_starter_vars' `extra_keep_vars' `extra_family_keep_vars'"
+
+if `keep_starter_vars_only' == 1 {
+    display as text "[INFO] NHIS low-memory mode: keeping starter variables plus requested extras."
+}
+
+capture program drop nhis_keep_existing_vars
+program define nhis_keep_existing_vars
+    syntax, Vars(string asis)
+
+    local vars : subinstr local vars `"""' "", all
+    local vars : list retok vars
+    local present
+    foreach v of local vars {
+        capture confirm variable `v'
+        if _rc == 0 {
+            local present "`present' `v'"
+        }
+    }
+
+    local present : list retok present
+    if trim("`present'") != "" {
+        keep `present'
+    }
+    else {
+        display as error "[WARN] No requested low-memory variables are present; keeping all variables for this step."
+    }
+end
+
+capture program drop nhis_coalesce_family
+program define nhis_coalesce_family
+    syntax, Name(name) Aliases(string asis)
+
+    local aliases : subinstr local aliases `"""' "", all
+    local aliases : list retok aliases
+    local present
+    foreach alias of local aliases {
+        capture confirm variable `alias'
+        if _rc == 0 {
+            local present "`present' `alias'"
+        }
+    }
+    local present : list retok present
+    if trim("`present'") == "" {
+        exit
+    }
+
+    local first_alias : word 1 of `present'
+    capture confirm variable `name'
+    if _rc != 0 {
+        clonevar `name' = `first_alias'
+    }
+
+    foreach alias of local present {
+        if "`alias'" != "`name'" {
+            capture confirm string variable `name'
+            if _rc == 0 {
+                capture confirm string variable `alias'
+                if _rc == 0 {
+                    quietly replace `name' = `alias' if missing(`name') & !missing(`alias')
+                }
+            }
+            else {
+                capture confirm numeric variable `alias'
+                if _rc == 0 {
+                    quietly replace `name' = `alias' if missing(`name') & !missing(`alias')
+                }
+            }
+        }
+    }
+end
+
+capture program drop nhis_norm_sample_keys
+program define nhis_norm_sample_keys
+    foreach key in hhx fmx fpx {
+        capture confirm string variable `key'
+        if _rc == 0 {
+            quietly replace `key' = strtrim(`key')
+        }
+    }
+
+    capture confirm numeric variable hhx
+    if _rc == 0 {
+        tostring hhx, replace format(%06.0f)
+    }
+    capture confirm numeric variable fmx
+    if _rc == 0 {
+        tostring fmx, replace format(%02.0f)
+    }
+    capture confirm numeric variable fpx
+    if _rc == 0 {
+        tostring fpx, replace format(%02.0f)
+    }
+end
+
+* ============================================================================
+* 2. CREATE .DTA FILES FROM RAW ASCII (CDC DO-FILES) — PRE-2019 ONLY
+* ============================================================================
+* The CDC provides do-files that read the fixed-width ASCII (.DAT) data
+* and create .dta files. We need 5 components per year:
+*   - personsx  (person-level demographics, ALL household members)
+*   - familyxx  (family-level info)
+*   - househld  (household-level info)
+*   - samadult  (sample adult health module)
+*   - samchild  (sample child health module)
+*
+* The CDC do-files assume the data file is in the working directory.
+* They use infix to read the .DAT file and save a .dta file.
+*
+* We skip this step for components where the .dta file already exists.
+* This entire section is skipped if pre2019_years is empty.
+
+if "`pre2019_years'" != "" {
+
+display as text _newline "============================================"
+display as text "   STEP 1: CREATING .DTA FILES FROM RAW DATA"
+display as text "============================================"
+
+foreach y of local pre2019_years {
+
+    display as text _newline "--- Year `y' ---"
+
+    local ydir "$nhis_root/data/NHIS `y'"
+
+    * Check each component
+    foreach comp in personsx familyxx househld samadult samchild {
+
+        * Check if .dta already exists
+        capture confirm file "`ydir'/`comp'.dta"
+        if _rc == 0 {
+            display as text "  `comp'.dta exists — skipping"
+            continue
+        }
+
+        * .dta does not exist — try to create it from the CDC do-file
+        * First check for the do-file (naming convention: YYYYcomp.do)
+        local dofile "`ydir'/`y'`comp'.do"
+        capture confirm file "`dofile'"
+        if _rc != 0 {
+            * Try alternate naming (just comp.do)
+            local dofile "`ydir'/`comp'.do"
+            capture confirm file "`dofile'"
+        }
+
+        if _rc != 0 {
+            display as error "  No do-file found for `comp' in `y'. Skipping."
+            continue
+        }
+
+        * Check for the .DAT file (case-insensitive search)
+        local dat_found = 0
+        local COMP = upper("`comp'")
+        foreach ext in ".DAT" ".dat" {
+            capture confirm file "`ydir'/`comp'`ext'"
+            if _rc == 0 {
+                local dat_found = 1
+            }
+            * Also try uppercase component name
+            capture confirm file "`ydir'/`COMP'`ext'"
+            if _rc == 0 {
+                local dat_found = 1
+            }
+        }
+
+        if `dat_found' == 0 {
+            * Some 2015-2018 components arrive zipped. Extract likely archives
+            * and then check again for fixed-width ASCII.
+            foreach zname in "`comp'.zip" "`COMP'.zip" "`comp'csv.zip" "`COMP'csv.zip" {
+                capture confirm file "`ydir'/`zname'"
+                if _rc == 0 {
+                    display as text "  Extracting `zname'..."
+                    !unzip -o -q "`ydir'/`zname'" -d "`ydir'/"
+                }
+            }
+
+            foreach ext in ".DAT" ".dat" {
+                capture confirm file "`ydir'/`comp'`ext'"
+                if _rc == 0 {
+                    local dat_found = 1
+                }
+                capture confirm file "`ydir'/`COMP'`ext'"
+                if _rc == 0 {
+                    local dat_found = 1
+                }
+            }
+        }
+
+        if `dat_found' == 0 {
+            * 2017 familyxx is distributed as CSV only in this repo. CSV
+            * fallback keeps the full-year build available when ASCII is absent.
+            local csv_found = 0
+            local csv_file ""
+            foreach cname in "`comp'.csv" "`COMP'.csv" {
+                capture confirm file "`ydir'/`cname'"
+                if _rc == 0 & `csv_found' == 0 {
+                    local csv_found = 1
+                    local csv_file "`ydir'/`cname'"
+                }
+            }
+
+            if `csv_found' == 0 {
+                display as error "  No .DAT or CSV file found for `comp' in `y'. Skipping."
+                continue
+            }
+
+            display as text "  Creating `comp'.dta from CSV fallback..."
+            import delimited using "`csv_file'", clear varnames(1) case(lower)
+            compress
+            save "`ydir'/`comp'.dta", replace
+
+            capture confirm file "`ydir'/`comp'.dta"
+            if _rc == 0 {
+                display as text "  Created `comp'.dta successfully from CSV"
+            }
+            else {
+                display as error "  FAILED to create `comp'.dta from CSV"
+            }
+            continue
+        }
+
+        * Some CDC do-files for 2016-2018 assume Windows paths such as
+        * c:\nhis2016\. When CSV files are present, use them directly to
+        * create portable component .dta files.
+        local csv_found = 0
+        local csv_file ""
+        foreach cname in "`comp'.csv" "`COMP'.csv" {
+            capture confirm file "`ydir'/`cname'"
+            if _rc == 0 & `csv_found' == 0 {
+                local csv_found = 1
+                local csv_file "`ydir'/`cname'"
+            }
+        }
+        if `y' >= 2015 & `csv_found' == 1 {
+            display as text "  Creating `comp'.dta from CSV fallback..."
+            import delimited using "`csv_file'", clear varnames(1) case(lower)
+            compress
+            save "`ydir'/`comp'.dta", replace
+
+            capture confirm file "`ydir'/`comp'.dta"
+            if _rc == 0 {
+                display as text "  Created `comp'.dta successfully from CSV"
+            }
+            else {
+                display as error "  FAILED to create `comp'.dta from CSV"
+            }
+            continue
+        }
+
+        * Run the CDC do-file to create the .dta
+        * Must cd into the year directory because do-files assume local paths
+        display as text "  Running `y'`comp'.do to create `comp'.dta..."
+        cd "`ydir'"
+        capture noisily do "`dofile'"
+        capture log close _all
+        cd "$nhis_root"
+
+        * Verify it was created
+        capture confirm file "`ydir'/`comp'.dta"
+        if _rc == 0 {
+            display as text "  Created `comp'.dta successfully"
+        }
+        else {
+            display as error "  FAILED to create `comp'.dta"
+        }
+    }
+}
+
+cd "$nhis_root"
+
+} // end if pre2019_years != ""
+
+* ============================================================================
+* 3. MERGE AND LOAD PRE-2019 ADULT FILES (2004-2018)
+* ============================================================================
+* For each year:
+*   1. Load personsx.dta (all household members)
+*   2. Merge familyxx.dta (family-level, m:1 on hhx fmx srvy_yr)
+*   3. Merge househld.dta (household-level, m:1 on hhx srvy_yr)
+*   4. Merge samadult.dta (sample adult, 1:1 on hhx fmx fpx srvy_yr)
+*   5. Keep only sample adults (those who matched with samadult)
+*
+* This mirrors the structure of the legacy "Step 1 Data build.do" from
+* the RDC project, adapted for the starter code context.
+* Skipped entirely if pre2019_years is empty.
+
+if "`pre2019_years'" != "" {
+
+display as text _newline "============================================"
+display as text "   STEP 2: MERGING PRE-2019 FILES"
+display as text "============================================"
+
+foreach y of local pre2019_years {
+
+    display as text _newline "--- Year `y' ---"
+
+    local ydir "data/NHIS `y'"
+
+    * Check that required files exist
+    capture confirm file "`ydir'/personsx.dta"
+    if _rc != 0 {
+        display as error "  personsx.dta not found for `y'. Skipping."
+        continue
+    }
+    capture confirm file "`ydir'/samadult.dta"
+    if _rc != 0 {
+        display as error "  samadult.dta not found for `y'. Skipping."
+        continue
+    }
+
+    * --- Load person-level file ---
+    use "`ydir'/personsx.dta", clear
+    quietly describe, short
+    display as text "  personsx: " _N " persons"
+
+    * Lowercase all variable names for consistency
+    foreach v of varlist _all {
+        local lc = lower("`v'")
+        if "`lc'" != "`v'" {
+            capture rename `v' `lc'
+        }
+    }
+
+    * Ensure srvy_yr exists
+    capture confirm variable srvy_yr
+    if _rc != 0 {
+        gen srvy_yr = `y'
+    }
+
+    * --- Merge familyxx (family-level) ---
+    capture confirm file "`ydir'/familyxx.dta"
+    if _rc == 0 {
+        merge m:1 hhx fmx srvy_yr using "`ydir'/familyxx.dta", ///
+            gen(_fammerge) keep(master match)
+        display as text "  familyxx merge: " _N " obs"
+    }
+
+    * --- Merge househld (household-level) ---
+    capture confirm file "`ydir'/househld.dta"
+    if _rc == 0 {
+        merge m:1 hhx srvy_yr using "`ydir'/househld.dta", ///
+            gen(_hhmerge) keep(master match)
+        display as text "  househld merge: " _N " obs"
+    }
+
+    preserve
+        use "`ydir'/samadult.dta", clear
+        foreach v of varlist _all {
+            local lc = lower("`v'")
+            if "`lc'" != "`v'" {
+                capture rename `v' `lc'
+            }
+        }
+        nhis_norm_sample_keys
+        tempfile samadult_norm_`y'
+        save `samadult_norm_`y'', replace
+    restore
+
+    * --- Merge samadult (sample adult) ---
+    merge 1:1 hhx fmx fpx srvy_yr using `samadult_norm_`y'', ///
+        gen(_samerge)
+
+    * Keep only sample adults (those who matched with samadult)
+    quietly count if _samerge == 3
+    display as text "  samadult merge: " r(N) " sample adults matched"
+    keep if _samerge == 3
+    drop _samerge
+    capture drop _fammerge _hhmerge
+
+    display as text "  Sample adults: " _N
+
+    * ---------------------------------------------------------------
+    * HARMONIZE VARIABLE NAMES TO POST-2019 CONVENTION
+    * ---------------------------------------------------------------
+    * Rename pre-2019 variables to match 2019+ naming.
+    * This allows a clean append across all years.
+
+    * Demographics
+    capture rename age_p    agep_a
+    capture rename sex      sex_a
+    capture rename origin_i hisp_a         // Hispanic origin
+    capture rename racerpi2 raceallp_a     // Race
+    capture rename educ1    educ_a         // Education
+    capture rename citizenp citizenp_a     // Citizenship
+    capture rename plborn   plborn_a       // Place of birth
+
+    * Health insurance
+    capture rename notcov   notcov_a
+    capture rename medicare medicare_a
+    capture rename medicaid medicaid_a
+    capture rename private  private_a
+    capture rename schip    schip_a
+    capture rename single   single_a
+    capture rename ihs      ihs_a
+    capture rename hinotyr  hinotyr_a
+
+    * Harmonize insurance variables that changed names within pre-2019
+    * Other gov: othergov (2004-07) -> othgov (2008+) -> othgov_a
+    capture confirm variable othergov
+    if _rc == 0 {
+        capture confirm variable othgov
+        if _rc != 0 {
+            rename othergov othgov
+        }
+    }
+    capture rename othgov othgov_a
+
+    * Other public: otherpub (2004-07) -> othpub (2008+) -> othpub_a
+    capture confirm variable otherpub
+    if _rc == 0 {
+        capture confirm variable othpub
+        if _rc != 0 {
+            rename otherpub othpub
+        }
+    }
+    capture rename othpub othpub_a
+
+    * Military: military (2004-07) -> milcare (2008+) -> milcare_a
+    capture confirm variable military
+    if _rc == 0 {
+        capture confirm variable milcare
+        if _rc != 0 {
+            rename military milcare
+        }
+    }
+    capture rename milcare milcare_a
+
+    * Hospitalization: phospyr (2004-05) -> phospyr2 (2006+) -> phospyr_a
+    capture confirm variable phospyr
+    if _rc == 0 {
+        capture confirm variable phospyr2
+        if _rc != 0 {
+            rename phospyr phospyr2
+        }
+    }
+    capture rename phospyr2 phospyr_a
+
+    * Food assistance: ffdstyn (2004-10) -> fsnap (2011+) -> fsnap_a
+    capture confirm variable ffdstyn
+    if _rc == 0 {
+        capture confirm variable fsnap
+        if _rc != 0 {
+            rename ffdstyn fsnap
+        }
+    }
+    capture rename fsnap fsnap_a
+
+    * Income / poverty ratio
+    * The poverty ratio category variable changes name across years:
+    *   2004-2006: rat_cat  (no suffix)
+    *   2007-2013: rat_cat2, rat_cat3  (two imputations)
+    *   2014:      rat_cat4, rat_cat5  (two imputations)
+    * We pick the first available variant and rename to ratcat_a.
+    * Similarly for income group: incgrp -> incgrp2 -> incgrp4
+    local ratcat_renamed = 0
+    foreach rc in rat_cat rat_cat2 rat_cat4 {
+        if `ratcat_renamed' == 0 {
+            capture confirm variable `rc'
+            if _rc == 0 {
+                rename `rc' ratcat_a
+                local ratcat_renamed = 1
+            }
+        }
+    }
+
+    local incgrp_renamed = 0
+    foreach ig in incgrp incgrp2 incgrp4 {
+        if `incgrp_renamed' == 0 {
+            capture confirm variable `ig'
+            if _rc == 0 {
+                rename `ig' incgrp_a
+                local incgrp_renamed = 1
+            }
+        }
+    }
+
+    * Drop the alternate imputation versions (keep only the one we renamed)
+    capture drop rat_cat3 rat_cat5 incgrp3 incgrp5
+
+    * Personal earnings (from personsx): ernyr_p -> ernyr_a
+    capture rename ernyr_p ernyr_a
+
+    * Health status and utilization
+    capture rename phstat   phstat_a
+    capture rename pdmed12m pdmed12m_a
+    capture rename pnmed12m pnmed12m_a
+
+    * Chronic conditions (add _a suffix)
+    foreach cv in hypev chlev chdev angev miev strev asev canev dibev copdev arthev depev anxev {
+        capture rename `cv' `cv'_a
+    }
+
+    * Survey design — harmonize stratum/PSU names
+    * 2004-05: stratum/psu  (add 1000 offset to stratum)
+    * 2006+:   strat_p/psu_p (add 2000 offset to strat_p)
+    * The offsets ensure strata are distinct across design periods
+    * (following CDC guidance in NHIS documentation)
+    if `y' <= 2005 {
+        capture confirm variable stratum
+        if _rc == 0 {
+            gen pstrat = 1000 + stratum
+            drop stratum
+        }
+        capture confirm variable psu
+        if _rc == 0 {
+            rename psu ppsu
+        }
+    }
+    else {
+        capture confirm variable strat_p
+        if _rc == 0 {
+            gen pstrat = 2000 + strat_p
+            drop strat_p
+        }
+        capture confirm variable psu_p
+        if _rc == 0 {
+            rename psu_p ppsu
+        }
+    }
+
+    * Weight: rename wtfa_sa -> wtfa_a (sample adult weight)
+    capture rename wtfa_sa wtfa_a
+
+    * Keep wtfa as person-level weight (different from sample adult weight)
+    capture rename wtfa wtfa_person
+
+    * Family weight
+    capture rename wtfa_fam wtfa_fam_pre
+
+    * Interview timing
+    capture rename intv_mon intv_mon_pre
+    capture rename intv_qrt intv_qrt_pre
+
+    * Other
+    capture rename regionbr regionbr_a
+    capture rename geobrth  geobrth_a
+    capture rename frrp     frrp_a
+
+    * Mark era
+    gen byte era_post2019 = 0
+    label var era_post2019 "Post-2019 redesign era (0=pre, 1=post)"
+
+    if `keep_starter_vars_only' == 1 {
+        nhis_keep_existing_vars, vars("`adult_low_memory_vars'")
+    }
+
+    * Save temporary year file
+    tempfile pre_`y'
+    compress
+    save `pre_`y'', replace
+    display as text "  Saved temp file for `y': " _N " sample adults"
+}
+
+} // end if pre2019_years != ""
+
+* ============================================================================
+* 4. LOAD POST-2019 ADULT FILES (2019-2024)
+* ============================================================================
+
+display as text _newline "============================================"
+display as text "   STEP 3: LOADING POST-2019 FILES"
+display as text "============================================"
+
+foreach y of local post2019_years {
+
+    display as text _newline "--- Year `y' ---"
+
+    local ydir "data/NHIS `y'"
+
+    * Two-digit year suffix
+    local yy = substr("`y'", 3, 2)
+
+    * Check for CSV file first (already extracted)
+    local csv_file "`ydir'/adult`yy'.csv"
+    local zip_file "`ydir'/adult`yy'csv.zip"
+
+    capture confirm file "`csv_file'"
+    if _rc != 0 {
+        * CSV not found — try to unzip
+        capture confirm file "`zip_file'"
+        if _rc != 0 {
+            display as error "  Neither CSV nor ZIP found for `y'. Skipping."
+            continue
+        }
+        display as text "  Unzipping `zip_file'..."
+        !unzip -o -q "`zip_file'" -d "`ydir'/"
+    }
+
+    * Re-check for CSV
+    capture confirm file "`csv_file'"
+    if _rc != 0 {
+        display as error "  CSV file not found after unzip for `y'. Skipping."
+        continue
+    }
+
+    display as text "  Importing `csv_file'..."
+    import delimited using "`csv_file'", clear varnames(1) case(lower)
+
+    * Add survey year if not already present
+    capture confirm variable srvy_yr
+    if _rc != 0 {
+        gen srvy_yr = `y'
+    }
+
+    * Mark era
+    gen byte era_post2019 = 1
+
+    if `keep_starter_vars_only' == 1 {
+        nhis_keep_existing_vars, vars("`adult_low_memory_vars'")
+    }
+
+    display as text "  Observations: " _N
+
+    * Save temporary file
+    tempfile post_`y'
+    compress
+    save `post_`y'', replace
+}
+
+* ============================================================================
+* 5. APPEND ALL YEARS
+* ============================================================================
+
+display as text _newline "============================================"
+display as text "   STEP 4: APPENDING ALL YEARS"
+display as text "============================================"
+
+* Start with the first available pre-2019 year (if any)
+local first_done = 0
+foreach y of local pre2019_years {
+    capture confirm file `pre_`y''
+    if _rc == 0 & `first_done' == 0 {
+        use `pre_`y'', clear
+        local first_done = 1
+        display as text "Starting with `y': " _N " obs"
+    }
+    else if _rc == 0 {
+        append using `pre_`y'', force
+        display as text "Appended `y': " _N " cumulative obs"
+    }
+}
+
+* Append post-2019 years
+foreach y of local post2019_years {
+    capture confirm file `post_`y''
+    if _rc == 0 {
+        if `first_done' == 0 {
+            use `post_`y'', clear
+            local first_done = 1
+            display as text "Starting with `y': " _N " obs"
+        }
+        else {
+            append using `post_`y'', force
+            display as text "Appended `y': " _N " cumulative obs"
+        }
+    }
+}
+
+display as text _newline "Combined adult dataset: " _N " observations"
+
+if `n_extra_families' > 0 {
+    forvalues i = 1/`n_extra_families' {
+        local family_name "`extra_family_name`i''"
+        local alias_vars "`extra_family_aliases`i''"
+        nhis_coalesce_family, name(`family_name') aliases("`alias_vars'")
+
+        capture confirm variable `family_name'
+        if _rc == 0 {
+            capture levelsof srvy_yr if !missing(`family_name'), local(matched_years)
+            if _rc == 0 & trim("`matched_years'") != "" {
+                display as text "[INFO] adult extra_var_family '`family_name'' matched in year(s): `matched_years'"
+            }
+            else {
+                display as text "[INFO] adult extra_var_family '`family_name'' matched at least one column"
+            }
+        }
+        else {
+            display as text "[WARN] adult extra_var_family '`family_name'' never matched"
+        }
+    }
+}
+
+* ============================================================================
+* 6. FINAL HARMONIZATION NOTES
+* ============================================================================
+
+* Hispanic origin: Pre-2019 origin_i coded 1=Hispanic, 2=Not Hispanic
+* Post-2019 hisp_a coded 1=Hispanic, 2=Not Hispanic. SAME — OK.
+
+* Sex: Both eras code 1=Male, 2=Female. SAME — OK.
+
+* Race: Pre-2019 racerpi2: 1=White, 2=Black, 3=AIAN, 4-15=various.
+* Post-2019 raceallp_a: 01=White, 02=Black, 03=AIAN, 04=Asian,
+* 05=Not releasable, 06=Multiple. Broad categories (1,2,3) match.
+* Asian coding differs. → Handled in cleaning script.
+
+* Education: Pre-2019 educ1 and post-2019 educ_a use different coding
+* schemes. → Handled in cleaning script with era-specific logic.
+
+* Insurance: Pre-2019 coding (1=mentioned, 2=probed yes, 3=no) differs
+* from post-2019 (1=yes, 2=no). → Handled in cleaning script.
+
+* Income/poverty: Pre-2019 rat_cat/rat_cat2/rat_cat4 renamed to ratcat_a.
+* Same 14-category coding in both eras. Pre-2019 incgrp/incgrp2/incgrp4
+* renamed to incgrp_a (5 income groups). Personal earnings (ernyr_p ->
+* ernyr_a) available pre-2019 only. → Handled in cleaning script.
+
+label var era_post2019 "Post-2019 redesign era (0=pre-2019, 1=2019+)"
+
+* ============================================================================
+* 7. SAVE COMBINED DATASET
+* ============================================================================
+
+sort srvy_yr hhx
+compress
+
+save "`output_dir'/nhis_adult.dta", replace
+display as text "Saved: `output_dir'/nhis_adult.dta"
+display as text "Total observations: " _N
+
+* ============================================================================
+* 8. BUILD CHILD FILE (PRE-2019: samchild; POST-2019: child CSV)
+* ============================================================================
+* Same approach as adults: merge person+family+household+samchild for pre-2019,
+* import child CSV for post-2019, harmonize variable names, and append.
+
+display as text _newline "============================================"
+display as text "   BUILDING CHILD FILE"
+display as text "============================================"
+
+* --- Pre-2019 children (if pre2019_years is not empty) ---
+if "`pre2019_years'" != "" {
+foreach y of local pre2019_years {
+
+    display as text _newline "--- Year `y' (child) ---"
+
+    local ydir "data/NHIS `y'"
+
+    capture confirm file "`ydir'/personsx.dta"
+    if _rc != 0 {
+        continue
+    }
+    capture confirm file "`ydir'/samchild.dta"
+    if _rc != 0 {
+        display as error "  samchild.dta not found for `y'. Skipping."
+        continue
+    }
+
+    use "`ydir'/personsx.dta", clear
+    foreach v of varlist _all {
+        local lc = lower("`v'")
+        if "`lc'" != "`v'" {
+            capture rename `v' `lc'
+        }
+    }
+    capture confirm variable srvy_yr
+    if _rc != 0 gen srvy_yr = `y'
+
+    * Merge familyxx
+    capture confirm file "`ydir'/familyxx.dta"
+    if _rc == 0 {
+        merge m:1 hhx fmx srvy_yr using "`ydir'/familyxx.dta", ///
+            gen(_fammerge) keep(master match)
+    }
+
+    * Merge househld
+    capture confirm file "`ydir'/househld.dta"
+    if _rc == 0 {
+        merge m:1 hhx srvy_yr using "`ydir'/househld.dta", ///
+            gen(_hhmerge) keep(master match)
+    }
+
+    preserve
+        use "`ydir'/samchild.dta", clear
+        foreach v of varlist _all {
+            local lc = lower("`v'")
+            if "`lc'" != "`v'" {
+                capture rename `v' `lc'
+            }
+        }
+        nhis_norm_sample_keys
+        tempfile samchild_norm_`y'
+        save `samchild_norm_`y'', replace
+    restore
+
+    * Merge samchild
+    merge 1:1 hhx fmx fpx srvy_yr using `samchild_norm_`y'', ///
+        gen(_scmerge)
+    keep if _scmerge == 3
+    drop _scmerge
+    capture drop _fammerge _hhmerge
+
+    display as text "  Sample children: " _N
+
+    * Harmonize variable names (same as adults where applicable)
+    capture rename age_p    agep_c
+    capture rename sex      sex_c
+    capture rename origin_i hisp_c
+    capture rename racerpi2 raceallp_c
+    capture rename citizenp citizenp_c
+    capture rename plborn   plborn_c
+
+    * Insurance
+    capture rename notcov   notcov_c
+    capture rename medicare medicare_c
+    capture rename medicaid medicaid_c
+    capture rename private  private_c
+    capture rename schip    schip_c
+
+    * Health status
+    capture rename phstat   phstat_c
+
+    * Within pre-2019 harmonization
+    capture confirm variable othergov
+    if _rc == 0 {
+        capture confirm variable othgov
+        if _rc != 0 rename othergov othgov
+    }
+    capture confirm variable otherpub
+    if _rc == 0 {
+        capture confirm variable othpub
+        if _rc != 0 rename otherpub othpub
+    }
+    capture confirm variable military
+    if _rc == 0 {
+        capture confirm variable milcare
+        if _rc != 0 rename military milcare
+    }
+    capture confirm variable ffdstyn
+    if _rc == 0 {
+        capture confirm variable fsnap
+        if _rc != 0 rename ffdstyn fsnap
+    }
+
+    * Survey design
+    if `y' <= 2005 {
+        capture confirm variable stratum
+        if _rc == 0 {
+            gen pstrat = 1000 + stratum
+            drop stratum
+        }
+        capture confirm variable psu
+        if _rc == 0 rename psu ppsu
+    }
+    else {
+        capture confirm variable strat_p
+        if _rc == 0 {
+            gen pstrat = 2000 + strat_p
+            drop strat_p
+        }
+        capture confirm variable psu_p
+        if _rc == 0 rename psu_p ppsu
+    }
+
+    capture rename wtfa_sc wtfa_c
+    capture rename wtfa wtfa_person
+
+    gen byte era_post2019 = 0
+
+    if `keep_starter_vars_only' == 1 {
+        nhis_keep_existing_vars, vars("`child_low_memory_vars'")
+    }
+
+    tempfile cpre_`y'
+    compress
+    save `cpre_`y'', replace
+}
+} // end if pre2019_years != "" (children)
+
+* --- Post-2019 children ---
+foreach y of local post2019_years {
+
+    display as text _newline "--- Year `y' (child) ---"
+
+    local ydir "data/NHIS `y'"
+    local yy = substr("`y'", 3, 2)
+    local csv_file "`ydir'/child`yy'.csv"
+    local zip_file "`ydir'/child`yy'csv.zip"
+
+    capture confirm file "`csv_file'"
+    if _rc != 0 {
+        capture confirm file "`zip_file'"
+        if _rc != 0 {
+            display as error "  Neither CSV nor ZIP found for child `y'. Skipping."
+            continue
+        }
+        !unzip -o -q "`zip_file'" -d "`ydir'/"
+    }
+
+    capture confirm file "`csv_file'"
+    if _rc != 0 {
+        continue
+    }
+
+    import delimited using "`csv_file'", clear varnames(1) case(lower)
+    capture confirm variable srvy_yr
+    if _rc != 0 gen srvy_yr = `y'
+
+    gen byte era_post2019 = 1
+    if `keep_starter_vars_only' == 1 {
+        nhis_keep_existing_vars, vars("`child_low_memory_vars'")
+    }
+    display as text "  Child observations: " _N
+
+    tempfile cpost_`y'
+    compress
+    save `cpost_`y'', replace
+}
+
+* --- Append all child years ---
+local first_done = 0
+foreach y of local pre2019_years {
+    capture confirm file `cpre_`y''
+    if _rc == 0 & `first_done' == 0 {
+        use `cpre_`y'', clear
+        local first_done = 1
+    }
+    else if _rc == 0 {
+        append using `cpre_`y'', force
+    }
+}
+foreach y of local post2019_years {
+    capture confirm file `cpost_`y''
+    if _rc == 0 {
+        if `first_done' == 0 {
+            use `cpost_`y'', clear
+            local first_done = 1
+        }
+        else {
+            append using `cpost_`y'', force
+        }
+    }
+}
+
+display as text "Combined child dataset: " _N " observations"
+
+if `n_extra_families' > 0 {
+    forvalues i = 1/`n_extra_families' {
+        local family_name "`extra_family_name`i''"
+        local alias_vars "`extra_family_aliases`i''"
+        nhis_coalesce_family, name(`family_name') aliases("`alias_vars'")
+
+        capture confirm variable `family_name'
+        if _rc == 0 {
+            capture levelsof srvy_yr if !missing(`family_name'), local(matched_years)
+            if _rc == 0 & trim("`matched_years'") != "" {
+                display as text "[INFO] child extra_var_family '`family_name'' matched in year(s): `matched_years'"
+            }
+            else {
+                display as text "[INFO] child extra_var_family '`family_name'' matched at least one column"
+            }
+        }
+        else {
+            display as text "[WARN] child extra_var_family '`family_name'' never matched"
+        }
+    }
+}
+
+sort srvy_yr hhx
+compress
+save "`output_dir'/nhis_child.dta", replace
+display as text "Saved: `output_dir'/nhis_child.dta"
+
+* ============================================================================
+* 9. VALIDATION CHECKS
+* ============================================================================
+
+display as text _newline "============================================"
+display as text "   VALIDATION CHECKS"
+display as text "============================================"
+
+* --- ADULT FILE ---
+use "`output_dir'/nhis_adult.dta", clear
+
+* 9a. Year distribution
+display as text _newline "--- Observations by year ---"
+tab srvy_yr
+
+* 9b. Era distribution
+display as text _newline "--- Observations by era ---"
+tab era_post2019
+
+* 9c. Check key harmonized variables exist
+local key_vars "srvy_yr hhx agep_a sex_a wtfa_a pstrat ppsu era_post2019"
+local all_exist = 1
+foreach v of local key_vars {
+    capture confirm variable `v'
+    if _rc != 0 {
+        display as error "[FAIL] Variable `v' not found"
+        local all_exist = 0
+    }
+}
+if `all_exist' == 1 {
+    display as text "[PASS] All key harmonized variables present"
+}
+
+* 9d. Weight check
+quietly summarize wtfa_a
+display as text "[INFO] Sample adult weight: N=" r(N) " mean=" %10.2f r(mean)
+
+* 9e. Plausibility
+* Check plausibility based on number of years
+quietly tab srvy_yr
+local n_val_years = r(r)
+local low_bound = `n_val_years' * 20000
+local high_bound = `n_val_years' * 100000
+if _N > `low_bound' & _N < `high_bound' {
+    display as text "[PASS] Total N (" _N ") plausible for `n_val_years' years"
+}
+else {
+    display as text "[INFO] Total N (" _N ") for `n_val_years' years — verify this matches your download"
+}
+
+* 9f. Years present
+quietly tab srvy_yr
+display as text "[INFO] Unique survey years: " r(r)
+
+* --- CHILD FILE ---
+use "`output_dir'/nhis_child.dta", clear
+display as text _newline "--- Child file ---"
+display as text "Total child observations: " _N
+tab srvy_yr
+tab era_post2019
+
+display as text _newline "============================================"
+display as text "   DONE"
+display as text "============================================"
+display as text "Next step: run 02_clean_and_analyze.do"
+
+********************************************************************************
+* FULL 2004-2024 BUILDS:
+*
+* To include all adult years, set pre-2019 and post-2019 year globals before
+* running this script:
+*
+*   global nhis_pre2019_years "2004 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2017 2018"
+*   global nhis_post2019_years "2019 2020 2021 2022 2023 2024"
+*   do "$nhis_root/code/01_load_and_append_optional_low_memory.do"
+*
+* Years 2015-2018 follow the pre-2019 design but some components arrive as
+* zipped ASCII/CSV files. This script extracts component archives when needed
+* and uses CSV fallback when fixed-width ASCII is absent or CDC do-files assume
+* Windows-only paths.
+*
+* CURRENT SHARED FILES:
+*   - Adult and child builds both cover 2004-2024 when all years are enabled.
+*
+* SPECIAL YEARS:
+*   - 2020: COVID-disrupted; extra files (adultlong, adultpart) exist
+*   - 2019: First redesign year; has both interim and final weights
+*   - 2004-2005: Different stratum/PSU naming (stratum/psu)
+*   - 2004-2010: No interview month variable (only quarter + week)
+*   - 2011+: Has interview month (intv_mon)
+*
+* HOW THE CDC DO-FILES WORK:
+*   The CDC provides a Stata do-file for each data component. These
+*   do-files use `infix` to read fixed-width ASCII data and assign
+*   variable names, labels, and value labels. The key structure is:
+*
+*     infix
+*       rectype 1-2  srvy_yr 3-6  str hhx 7-12 ...
+*     using "PERSONSX.dat", clear
+*
+*   They then apply labels and save as .dta. The do-files assume the
+*   .DAT file is in the current working directory.
+*
+* See README.md for full documentation.
+********************************************************************************

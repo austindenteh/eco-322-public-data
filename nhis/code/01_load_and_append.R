@@ -163,8 +163,9 @@ normalize_var_names <- function(x) {
 }
 
 # Full all-column NHIS builds can exceed memory in R when pre-2019 years are
-# included. Set this to TRUE to keep only variables needed by the starter
-# cleaner, plus any names in extra_vars or extra_var_families.
+# included. For the reviewed low-memory workflow, use the standalone
+# 01_load_and_append_optional_low_memory.R script. Advanced users can set this
+# TRUE to keep only variables needed by the starter cleaner, plus extras.
 if (!exists("keep_starter_vars_only", inherits = TRUE)) {
   keep_starter_vars_only <- FALSE
 }
@@ -790,8 +791,8 @@ cat("Next step: run 02_clean_and_analyze.R\n")
 #
 # 2. FULL 2004-2024 R BUILDS:
 #    Full all-column R builds can exceed memory because pre-2019 files carry
-#    thousands of raw variables. For a full-year R build that feeds the starter
-#    cleaner, set these before sourcing this script:
+#    thousands of raw variables. For the reviewed starter low-memory build, run
+#    code/01_load_and_append_optional_low_memory.R. Advanced users can still set:
 #      pre2019_years <- 2004:2018
 #      keep_starter_vars_only <- TRUE
 #    Use extra_vars for stable additional variable names. Use
