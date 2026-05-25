@@ -22,6 +22,14 @@ The Demographic and Health Surveys (DHS) Program has conducted nationally repres
 - `ghana_dhs_YYYY_working.dta` / `.rds` — Harmonized women + men pooled dataset
 - `ghana_dhs_YYYY_analysis.dta` / `.rds` — Cleaned analysis dataset with constructed variables
 
+For selected-year or pooled work, use `code/01_load_selected_years.R` or
+`code/01_load_selected_years.do`. These standalone loaders read only the
+columns needed for the starter output plus any user-requested extra variables,
+support selected waves and women/men recodes, and save a combined selected-years
+working file. The wave-specific `01_load_YYYY` scripts remain available for
+full-file builds and for inspecting the detailed harmonization logic for a
+single survey wave.
+
 ### Data Source
 
 Downloaded from the **DHS Program** data repository:
@@ -36,7 +44,7 @@ Downloaded from the **DHS Program** data repository:
 | Wave | DHS Phase | Women (IR) | Men (MR) | Regions | Insurance Data | Wealth Index |
 |------|-----------|-----------|----------|---------|----------------|--------------|
 | 1988 | II | 4,488 | — | 10* | No | No |
-| 1993 | III | 4,562 | 1,015 | 10 | No | No |
+| 1993 | III | 4,562 | 1,302 | 10 | No | No |
 | 1998 | IV | 4,843 | 1,546 | 10 | No | No |
 | 2003 | IV+ | 5,691 | 5,015 | 10 | No | Yes |
 | 2008 | V | 4,916 | 4,568 | 10 | Yes (NHIS) | Yes |
@@ -45,7 +53,7 @@ Downloaded from the **DHS Program** data repository:
 
 \* 1988 uses `v101`/`v102` for region/residence instead of `v024`/`v025`.
 
-**Starter scripts are provided for all 7 waves (1988–2022)** in both Stata and R, with full Stata–R parity verified. The three most recent waves (2008, 2014, 2022) include health insurance data relevant to health economics research.
+**Starter scripts are provided for all 7 waves (1988–2022)** in both Stata and R. The three most recent waves (2008, 2014, 2022) include health insurance data relevant to health economics research.
 
 ---
 
@@ -62,6 +70,8 @@ dhs/
 │   ├── 01_load_2008.do/.R       ← Load & harmonize 2008 women + men
 │   ├── 01_load_2014.do/.R       ← Load & harmonize 2014 women + men
 │   ├── 01_load_2022.do/.R       ← Load & harmonize 2022 women + men
+│   ├── 01_load_selected_years.do  ← Load selected waves/samples and combine
+│   ├── 01_load_selected_years.R
 │   ├── 02_clean_1988.do/.R      ← Clean & analyze 1988 (no literacy/wealth/insurance)
 │   ├── 02_clean_1993.do/.R      ← Clean & analyze 1993 (no literacy/wealth/insurance)
 │   ├── 02_clean_1998.do/.R      ← Clean & analyze 1998 (no literacy/wealth/insurance)
@@ -79,7 +89,7 @@ dhs/
 │       ├── ghana_2014/          ← DHS recode files for 2014
 │       └── ghana_2022/          ← DHS recode files for 2022
 ├── docs/                        ← Reference code and documentation
-├── output/                      ← Generated datasets and logs
+├── output/                      ← Generated datasets and logs (ignored)
 └── legacy/                      ← Original files (preserved per project rules)
 ```
 
@@ -92,7 +102,7 @@ dhs/
 1. Register at [dhsprogram.com](https://dhsprogram.com/data/) (free for academic users)
 2. Request access to the Ghana DHS datasets
 3. Download the **Stata (.DTA)** recode files for each wave
-4. Place them in the appropriate `data/raw/ghana_YYYY/` subfolder, preserving the DHS subfolder structure
+4. Place the Stata recode folders in the appropriate `data/raw/ghana_YYYY/` subfolder, preserving the DHS subfolder structure
 
 **Expected file paths (example for 2008):**
 ```
@@ -107,23 +117,97 @@ data/raw/ghana_2008/GHMR5ADT/GHMR5AFL.DTA    ← Men's Recode
 
 | Wave | Women's IR File | Men's MR File |
 |------|----------------|---------------|
+| 1988 | `GHIR02DT/GHIR02FL.DTA` | Not available |
+| 1993 | `GHIR31DT/GHIR31FL.DTA` | `GHMR31DT/GHMR31FL.DTA` |
+| 1998 | `GHIR41DT/GHIR41FL.DTA` | `GHMR41DT/GHMR41FL.DTA` |
+| 2003 | `GHIR4BDT/GHIR4BFL.DTA` | `GHMR4BDT/GHMR4BFL.DTA` |
 | 2008 | `GHIR5ADT/GHIR5AFL.DTA` | `GHMR5ADT/GHMR5AFL.DTA` |
 | 2014 | `GHIR72DT/GHIR72FL.DTA` | `GHMR71DT/GHMR71FL.DTA` |
 | 2022 | `GHIR8CDT/GHIR8CFL.DTA` | `GHMR8CDT/GHMR8CFL.DTA` |
 
 ### Step 2: Load and Harmonize
 
-**Stata** (from the `code/` directory):
+The selected-years loaders are usually the easiest way to create a pooled
+starter file. By default, they process all available waves, write
+`ghana_dhs_selected_working.*`, and also write per-wave working files. Set
+selected years, samples, extras, and output directories before running if you
+want a smaller or scratch build.
+
+**Stata** (example from the repository root):
 ```stata
-do 01_load_2008.do    // or 01_load_2014.do, 01_load_2022.do
+global dhs_years "2008 2022"
+global dhs_samples "women men"
+global dhs_output_dir "/private/tmp/dhs_smoke"
+global dhs_write_wave_outputs "1"
+global dhs_extra_keep_vars "v133"
+global dhs_extra_var_families `" "insurance_type:v481c v481e mv481c mv481e" "'
+do "dhs/code/01_load_selected_years.do"
 ```
 
-**R** (from the `code/` directory):
+**R** (example from the repository root):
 ```r
-source("01_load_2008.R")    # or 01_load_2014.R, 01_load_2022.R
+dhs_years <- c(2008, 2022)
+dhs_samples <- c("women", "men")
+dhs_output_dir <- "/private/tmp/dhs_smoke"
+write_wave_outputs <- TRUE
+extra_vars <- c("v133")
+extra_var_families <- list(
+  insurance_type = c("v481c", "v481e", "mv481c", "mv481e")
+)
+source("dhs/code/01_load_selected_years.R")
 ```
 
-This loads the women's individual recode and men's recode, harmonizes the DHS variable names (women use `v` prefix, men use `mv` prefix) into a common surface, appends both samples, and saves a working dataset.
+From `dhs/`, use `code/01_load_selected_years.*`; from `dhs/code/`, use
+`01_load_selected_years.*`.
+
+This loads the women's individual recode and men's recode, harmonizes the DHS
+variable names (women use `v` prefix, men use `mv` prefix) into a common
+surface, appends selected samples and years, and saves a working dataset. The
+combined output includes `survey_year`, which records the DHS wave year even
+when fieldwork spans two calendar years.
+
+### Combining Waves Responsibly
+
+DHS waves are not equally easy to pool. The selected-years loaders create a
+starter surface that is useful for teaching, first-pass descriptives, and
+building your own harmonized file, but they do not make every DHS concept fully
+comparable across time.
+
+Recommended pooled windows:
+
+- **2008 and 2014**: strongest pair for NHIS work because both have health-insurance variables and the same 10-region geography.
+- **2008, 2014, and 2022**: useful for national NHIS/descriptive work, but 2022 uses Ghana's post-2019 16-region geography; map regions before raw region comparisons.
+- **2003, 2008, 2014, and 2022**: good for common demographics, wealth, and literacy; health insurance remains missing in 2003.
+- **1993 onward**: reasonable for basic demographics, education level, marital status, employment, religion, ethnicity, and sex-pooled women/men samples; no wealth or literacy before 2003 and no health insurance before 2008.
+- **1988 plus later waves**: use mainly for women-only long-run comparisons; 1988 has no men's recode and uses older region/residence variables that the loader maps onto the starter surface.
+
+The combined selected-years output includes these wave-level flags to keep the
+warnings visible in the data: `region_scheme`, `has_men_recode`,
+`has_wealth_index`, `has_literacy`, and `has_health_insurance`. Extra-variable
+families only coalesce aliases by name; users should verify coding and meaning
+before interpreting added variables across waves.
+
+Manual root overrides are available if auto-detection fails:
+
+```stata
+global dhs_root "/path/to/econ-data-starters/dhs"
+do "$dhs_root/code/01_load_selected_years.do"
+```
+
+```r
+dhs_root_manual <- "/path/to/econ-data-starters/dhs"
+source(file.path(dhs_root_manual, "code", "01_load_selected_years.R"))
+```
+
+The older wave-specific loaders still work from `dhs/code/`:
+
+```stata
+do 01_load_2008.do
+```
+
+```r
+source("01_load_2008.R")
+```
 
 ### Step 3: Clean and Analyze
 
@@ -147,6 +231,12 @@ source("02_clean_2008.R")    # or 02_clean_2014.R, 02_clean_2022.R
 |----------|-------------|
 | `female` | Female respondent indicator (1=women's sample, 0=men's sample) |
 | `source_sample` | Source sample ("women" or "men") |
+| `survey_year` | DHS survey wave year, stable for pooled selected-years files |
+| `region_scheme` | Region coding scheme for the wave (`10_region` or `16_region`) |
+| `has_men_recode` | Indicator that the wave has a men's recode in this starter |
+| `has_wealth_index` | Indicator that the wave has DHS wealth-index variables |
+| `has_literacy` | Indicator that the wave has literacy variables |
+| `has_health_insurance` | Indicator that the wave has health-insurance variables |
 | `cluster_id` | DHS survey cluster number |
 | `household_id` | Household number within cluster |
 | `respondent_id` | Respondent line number within household |
@@ -276,16 +366,24 @@ The DHS uses **9** or **99** as missing value codes for many variables. The load
 
 ### 2022 DHS File Size
 
-The 2022 women's individual recode has **5,584 variables** (15,014 observations). In Stata, you may need:
+The 2022 women's individual recode has **5,584 variables** (15,014 observations). The selected-years loaders avoid importing all 5,584 variables when a starter build only needs selected columns. In full-file Stata builds, you may need:
 ```stata
 set maxvar 10000
 ```
 
+### Raw Data and Output Hygiene
+
+The `data/`, `legacy/`, and `output/` folders are ignored by Git. Do not commit
+DHS raw recode files, generated `.dta` or `.rds` outputs, local logs, or scratch
+smoke-test directories. Use `dhs_output_dir` to point smoke tests to a temporary
+directory such as `/private/tmp/dhs_smoke`.
+
 ---
 
-## Extending to Earlier Waves
+## Earlier-Wave Differences
 
-The starter scripts cover 2008, 2014, and 2022. To work with earlier waves (1988–2003), follow the same pattern but note these differences:
+The starter scripts cover all seven waves. Earlier waves differ from the
+2008+ health-insurance waves in several important ways:
 
 | Feature | 1988 | 1993–1998 | 2003 | 2008+ |
 |---------|------|-----------|------|-------|

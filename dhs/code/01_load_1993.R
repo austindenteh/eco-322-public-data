@@ -7,7 +7,7 @@
 #
 # DHS Phase III — Ghana 1993
 # Women: GHIR31FL.DTA (N = 4,562; ages 15-49)
-# Men:   GHMR31FL.DTA (N = 1,015; ages 15-59)
+# Men:   GHMR31FL.DTA (N = 1,302; ages 15-59)
 #
 # NOTE: v155 (literacy), v190 (wealth index), v481/v481c (insurance) do NOT
 #       exist in the 1993 wave. These are set to missing.
