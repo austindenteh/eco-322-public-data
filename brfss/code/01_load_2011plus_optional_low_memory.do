@@ -1,20 +1,20 @@
 ********************************************************************************
-* 01_load_and_append_optional_low_memory.do
+* 01_load_2011plus_optional_low_memory.do
 *
-* Purpose: Optional low-memory alternative to 01_load_and_append.do.
+* Purpose: Optional low-memory alternative to 01_load_2011plus.do.
 *          Imports one BRFSS year at a time, keeps only the raw columns needed
-*          by 02_clean_and_harmonize.do plus any user-requested extras, saves
+*          by 02_clean_2011plus.do plus any user-requested extras, saves
 *          temporary yearly files, and then appends them into the usual
-*          output/brfss_appended.dta file.
+*          output/brfss_2011plus_appended.dta file.
 *
 * Important: This script is designed for the standard starter workflow.
 *            It does NOT keep the full BRFSS raw file. If you need many extra
 *            raw variables or optional-module variables, use
-*            01_load_and_append.do instead.
+*            01_load_2011plus.do instead.
 *
 *
 * Input:   data/raw/LLCP20XX.XPT
-* Output:  output/brfss_appended.dta
+* Output:  output/brfss_2011plus_appended.dta
 *          temporary yearly .dta files under output/_tmp_low_memory_stata/
 *
 * Usage:   Run from brfss/, brfss/code/, from the repo root, or set
@@ -36,16 +36,16 @@ set more off
 * global brfss_root "/path/to/brfss"
 
 local cwd `"`c(pwd)'"'
-if "$brfss_root" != "" & fileexists("$brfss_root/code/01_load_and_append_optional_low_memory.do") {
+if "$brfss_root" != "" & fileexists("$brfss_root/code/01_load_2011plus_optional_low_memory.do") {
     global brfss_root "$brfss_root"
 }
-else if fileexists("code/01_load_and_append_optional_low_memory.do") & fileexists("README.md") {
+else if fileexists("code/01_load_2011plus_optional_low_memory.do") & fileexists("README.md") {
     global brfss_root "`cwd'"
 }
-else if fileexists("01_load_and_append_optional_low_memory.do") & fileexists("../README.md") {
+else if fileexists("01_load_2011plus_optional_low_memory.do") & fileexists("../README.md") {
     global brfss_root "`cwd'/.."
 }
-else if fileexists("brfss/code/01_load_and_append_optional_low_memory.do") & fileexists("brfss/README.md") {
+else if fileexists("brfss/code/01_load_2011plus_optional_low_memory.do") & fileexists("brfss/README.md") {
     global brfss_root "`cwd'/brfss"
 }
 else {
@@ -58,20 +58,27 @@ cd "$brfss_root"
 display as text "Using BRFSS root: $brfss_root"
 
 local raw_dir  "data/raw"
-local out_dta  "output/brfss_appended.dta"
-local temp_dir "output/_tmp_low_memory_stata"
+if "$brfss_output_dir" != "" {
+    local out_dir "$brfss_output_dir"
+}
+else {
+    local out_dir "output"
+}
+capture mkdir "`out_dir'"
+local out_dta  "`out_dir'/brfss_2011plus_appended.dta"
+local temp_dir "`out_dir'/_tmp_low_memory_stata"
 
 * ============================================================================
 * USER SETTINGS
 * ============================================================================
-* This script is optional. Most users should keep using 01_load_and_append.do.
+* This script is optional. Most users should keep using 01_load_2011plus.do.
 * Use this version if loading many BRFSS years strains your machine.
 *
 * What this script does:
 *   1. Imports one year at a time
-*   2. Keeps only the raw columns needed by 02_clean_and_harmonize.do
+*   2. Keeps only the raw columns needed by 02_clean_2011plus.do
 *   3. Saves a temporary yearly .dta file
-*   4. Appends those yearly files into output/brfss_appended.dta
+*   4. Appends those yearly files into output/brfss_2011plus_appended.dta
 *
 * What this script does NOT do:
 *   - It does not keep the full BRFSS raw file
@@ -81,7 +88,7 @@ local temp_dir "output/_tmp_low_memory_stata"
 *     meanings or value definitions across years
 *
 * If you need many extra raw variables or optional-module variables, use the
-* standard 01_load_and_append.do workflow instead.
+* standard 01_load_2011plus.do workflow instead.
 
 * Choose either a consecutive year range or an explicit year list.
 * If years_to_load is not empty, it overrides first_year/last_year.
@@ -92,6 +99,10 @@ local years_to_load ""
 * Consecutive-year option.
 local first_year 2023
 local last_year  2024
+
+if "$brfss_years" != "" {
+    local years_to_load "$brfss_years"
+}
 
 * If 1, delete and rebuild the temporary low-memory folder each time.
 local overwrite_temp_files 1
@@ -108,7 +119,7 @@ local extra_keep_vars ""
 * Each quoted entry is: merged_name:raw_alias1 raw_alias2 ...
 * IMPORTANT: This only merges raw aliases into one column. If the coding or
 * meaning of your added variable changes across years, you must harmonize that
-* variable later in 02_clean_and_harmonize.do or in your analysis code.
+* variable later in 02_clean_2011plus.do or in your analysis code.
 *
 * Example:
 * local extra_var_families ///
@@ -148,7 +159,7 @@ if _rc != 0 {
 * ============================================================================
 
 local core_keep_vars ///
-    "_psu _ststr _llcpwt _state imonth iyear " ///
+    "_psu _ststr _llcpwt _state ctycode1 seqno imonth iyear " ///
     "_impage _age80 _ageg5yr " ///
     "sex sexvar birthsex " ///
     "_racegr2 _racegr3 _racegr4 " ///
@@ -166,7 +177,7 @@ local n_extra_families 0
 if trim(`"`extra_var_families'"') != "" {
     display as text "[INFO] extra_var_families only merge raw aliases into one column."
     display as text "       If coding or meanings change across years, harmonize that"
-    display as text "       added variable later in 02_clean_and_harmonize.do or in"
+    display as text "       added variable later in 02_clean_2011plus.do or in"
     display as text "       your analysis code."
 }
 
@@ -412,9 +423,10 @@ else {
     display as error "[FAIL] Expected years `years' but found `loaded_years'"
 }
 
-local core_family_names "survey_design state_id interview_timing demographics health"
+local core_family_names "survey_design geography record_id interview_timing demographics health"
 local core_family_survey_design "_psu _ststr _llcpwt"
-local core_family_state_id "_state"
+local core_family_geography "_state ctycode1"
+local core_family_record_id "seqno"
 local core_family_interview_timing "imonth iyear"
 local core_family_demographics "_impage _age80 _ageg5yr sex sexvar birthsex _racegr2 _racegr3 _racegr4 educa marital income2 income3 employ employ1"
 local core_family_health "genhlth menthlth physhlth _bmi5 _bmi5cat _smoker3 diabete3 diabete4 asthma3 asthnow cvdcrhd4 cvdinfr4 chccopd chccopd1 chccopd3"
@@ -494,13 +506,13 @@ else {
 display as text _newline "============================================"
 display as text "   VALIDATION COMPLETE"
 display as text "============================================"
-display as text _newline "Next step: run 02_clean_and_harmonize.do"
+display as text _newline "Next step: run 02_clean_2011plus.do"
 
 ********************************************************************************
 * NOTES FOR USERS:
 *
-* 1. SAME NEXT STEP: The output file is still output/brfss_appended.dta, so
-*    you can run 02_clean_and_harmonize.do exactly as usual after this script.
+* 1. SAME NEXT STEP: The output is still brfss_2011plus_appended.dta, so
+*    you can run 02_clean_2011plus.do exactly as usual after this script.
 *
 * 2. EXTRA VARIABLES: extra_keep_vars are best when a variable name is stable
 *    across years. extra_var_families are best when the raw names differ by
@@ -509,5 +521,5 @@ display as text _newline "Next step: run 02_clean_and_harmonize.do"
 *    or value definitions for you.
 *
 * 3. USE THE FULL SCRIPT WHEN NEEDED: If your project depends on many raw BRFSS
-*    columns or optional-module variables, use 01_load_and_append.do instead.
+*    columns or optional-module variables, use 01_load_2011plus.do instead.
 ********************************************************************************

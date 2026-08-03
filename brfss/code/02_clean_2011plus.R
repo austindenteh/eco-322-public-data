@@ -1,14 +1,14 @@
 ################################################################################
-# 02_clean_and_harmonize.R
+# 02_clean_2011plus.R
 #
 # Purpose: Clean and harmonize BRFSS variables across survey years.
 #          Creates consistent demographic, health, and survey design variables
 #          that can be used for pooled cross-year analysis.
 #          Works with any year range from 2011-2024 (default: 2023-2024).
 #
-# Input:   output/brfss_appended.rds  (from 01_load_and_append.R)
-# Output:  output/brfss_clean.rds
-#          output/brfss_clean_from_r.dta  (optional R export for Stata users)
+# Input:   output/brfss_2011plus_appended.rds  (from 01_load_2011plus.R)
+# Output:  output/brfss_2011plus_clean.rds
+#          output/brfss_2011plus_clean_from_r.dta  (R export for Stata users)
 #
 # Usage:   Run from brfss/, from the repo root, or set BRFSS_ROOT explicitly.
 #
@@ -20,7 +20,7 @@
 #   - Age: _impage (2011-2012) vs. _age80 (2013-2024)
 #   - Employment: employ (2011-2012) vs. employ1 (2013-2024)
 #   - Diabetes: diabete3 (2011-2014) vs. diabete4 (later years)
-#   - COPD: chccopd/chccopd1 (older layouts) vs. chccopd3 (modern layouts)
+#   - COPD: chccopd/chccopd1 (older layouts) vs. chccopd3 (newer layouts)
 #
 # Author:  Austin Denteh (legacy code and Claude Code)
 # Date:    February 2026
@@ -113,12 +113,15 @@ coerce_numeric_if_present <- function(df, var_name) {
 # Optional manual override if auto-detection fails:
 # Sys.setenv(BRFSS_ROOT = "/path/to/brfss")
 
-brfss_root <- resolve_brfss_root("02_clean_and_harmonize.R")
+brfss_root <- resolve_brfss_root("02_clean_2011plus.R")
 cat(paste0("Using BRFSS root: ", brfss_root, "\n"))
 
-in_rds   <- file.path(brfss_root, "output", "brfss_appended.rds")
-out_rds  <- file.path(brfss_root, "output", "brfss_clean.rds")
-out_dta  <- file.path(brfss_root, "output", "brfss_clean_from_r.dta")
+output_override <- Sys.getenv("BRFSS_OUTPUT_DIR", unset = "")
+out_dir <- if (nzchar(output_override)) output_override else file.path(brfss_root, "output")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+in_rds   <- file.path(out_dir, "brfss_2011plus_appended.rds")
+out_rds  <- file.path(out_dir, "brfss_2011plus_clean.rds")
+out_dta  <- file.path(out_dir, "brfss_2011plus_clean_from_r.dta")
 
 # ============================================================================
 # 2. LOAD APPENDED DATA
@@ -133,7 +136,7 @@ names(brfss) <- tolower(names(brfss))
 input_names <- names(brfss)
 
 support_vars <- c(
-  "sex", "_racegr2", "_racegr3", "_racegr4", "_impage",
+  "ctycode1", "sex", "_racegr2", "_racegr3", "_racegr4", "_impage", "_age80",
   "sexvar", "birthsex", "income2", "income3", "employ", "employ1",
   "diabete3", "diabete4", "chccopd", "chccopd1", "chccopd3"
 )
@@ -145,6 +148,7 @@ for (var_name in added_placeholder_vars) {
 
 imonth_num <- coerce_numeric_if_present(brfss, "imonth")
 iyear_num  <- coerce_numeric_if_present(brfss, "iyear")
+ctycode1_num <- coerce_numeric_if_present(brfss, "ctycode1")
 
 # ============================================================================
 # 3. HARMONIZE DEMOGRAPHICS
@@ -158,12 +162,30 @@ brfss <- brfss %>%
     # --- 3a. State FIPS code -------------------------------------------------
     statefips = `_state`,
 
+    # CTYCODE1 is a three-digit county code in the 2011-2012 public files.
+    # Later 2011-plus files do not expose it. Exclude CDC nonresponse codes.
+    county_code_raw = ifelse(
+      ctycode1_num >= 1 & ctycode1_num <= 840 &
+        !(ctycode1_num %in% c(777, 888, 999)),
+      ctycode1_num,
+      NA_real_
+    ),
+    county_code_source = ifelse(!is.na(county_code_raw), "ctycode1", NA_character_),
+    countyfips = ifelse(
+      !is.na(statefips) & !is.na(county_code_raw),
+      as.numeric(statefips) * 1000 + county_code_raw,
+      NA_real_
+    ),
+
     # --- 3b. Interview month and year ---------------------------------------
+    # Retain the raw fields in a numeric form matching Stata's destring step.
+    imonth = imonth_num,
+    iyear = iyear_num,
     month = ifelse(imonth_num >= 1 & imonth_num <= 12, imonth_num, NA_real_),
     year = iyear_num,
 
     # --- 3c. Age -------------------------------------------------------------
-    # _age80 is the standard modern imputed age. _impage is the early fallback.
+    # _age80 is the standard newer imputed age. _impage is the early fallback.
     age = case_when(
       !is.na(`_age80`) ~ as.numeric(`_age80`),
       is.na(`_age80`) & !is.na(`_impage`) ~ as.numeric(`_impage`),
@@ -174,7 +196,7 @@ brfss <- brfss %>%
     age_cat = `_ageg5yr`,
 
     # --- 3d. Sex / Gender ----------------------------------------------------
-    # Prefer the most specific modern source variable available, then fall back.
+    # Prefer the most specific newer source variable available, then fall back.
     female = case_when(
       !is.na(sexvar) & sexvar == 2 ~ 1L,
       !is.na(sexvar) & sexvar == 1 ~ 0L,
@@ -371,6 +393,28 @@ brfss <- brfss %>%
     chccopd1 == 2 ~ 0L,
     TRUE ~ NA_integer_
   ))
+
+expected_county_raw <- ifelse(
+  ctycode1_num >= 1 & ctycode1_num <= 840 &
+    !(ctycode1_num %in% c(777, 888, 999)),
+  ctycode1_num,
+  NA_real_
+)
+expected_countyfips <- ifelse(
+  !is.na(brfss$statefips) & !is.na(expected_county_raw),
+  as.numeric(brfss$statefips) * 1000 + expected_county_raw,
+  NA_real_
+)
+county_mismatch <- !(
+  (is.na(brfss$countyfips) & is.na(expected_countyfips)) |
+    (!is.na(brfss$countyfips) & !is.na(expected_countyfips) &
+       brfss$countyfips == expected_countyfips)
+)
+if (any(county_mismatch)) {
+  stop(paste0("[FAIL] countyfips does not follow CTYCODE1 in ", sum(county_mismatch), " row(s)."))
+}
+cat(paste0("[PASS] CTYCODE1 county construction validated; non-missing countyfips rows: ",
+           sum(!is.na(brfss$countyfips)), "\n"))
 
 if (length(added_placeholder_vars) > 0) {
   brfss <- brfss %>% select(-any_of(added_placeholder_vars))
@@ -573,9 +617,9 @@ cat("============================================\n")
 #    own model on the full analysis sample. For multi-year pooled analysis, you
 #    may need to adjust weights. See CDC documentation on combining BRFSS years.
 #
-# 6. OUTPUTS: This script writes brfss_clean.rds and a separate
-#    brfss_clean_from_r.dta export so it does not overwrite the Stata-native
-#    brfss_clean.dta produced by 02_clean_and_harmonize.do.
+# 6. OUTPUTS: This script writes brfss_2011plus_clean.rds and a separate
+#    brfss_2011plus_clean_from_r.dta export so it does not overwrite the
+#    Stata-native brfss_2011plus_clean.dta produced by 02_clean_2011plus.do.
 #
 # 7. SEXVAR vs. SEX: The 2021-2024 public files use SEXVAR, and some years
 #    also include BIRTHSEX. Older years use SEX. If you need gender identity,

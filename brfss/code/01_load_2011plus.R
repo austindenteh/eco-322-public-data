@@ -1,13 +1,13 @@
 ################################################################################
-# 01_load_and_append.R
+# 01_load_2011plus.R
 #
 # Purpose: Import BRFSS SAS Transport (.XPT) files for each survey year,
 #          add a survey year identifier, and bind all years into a single
 #          stacked dataset.
 #
 # Input:   data/raw/LLCP20XX.XPT   (default: 2023-2024; expandable to 2011-2024)
-# Output:  output/brfss_appended.rds
-#          output/brfss_appended_from_r.dta  (optional R export for Stata users)
+# Output:  output/brfss_2011plus_appended.rds
+#          output/brfss_2011plus_appended_from_r.dta  (R export for Stata users)
 #
 # Usage:   Run from brfss/, from the repo root, or set BRFSS_ROOT explicitly.
 #
@@ -109,12 +109,15 @@ make_year_label <- function(years) {
 # Optional manual override if auto-detection fails:
 # Sys.setenv(BRFSS_ROOT = "/path/to/brfss")
 
-brfss_root <- resolve_brfss_root("01_load_and_append.R")
+brfss_root <- resolve_brfss_root("01_load_2011plus.R")
 cat(paste0("Using BRFSS root: ", brfss_root, "\n"))
 
 raw_dir  <- file.path(brfss_root, "data", "raw")
-out_rds  <- file.path(brfss_root, "output", "brfss_appended.rds")
-out_dta  <- file.path(brfss_root, "output", "brfss_appended_from_r.dta")
+output_override <- Sys.getenv("BRFSS_OUTPUT_DIR", unset = "")
+out_dir <- if (nzchar(output_override)) output_override else file.path(brfss_root, "output")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+out_rds  <- file.path(out_dir, "brfss_2011plus_appended.rds")
+out_dta  <- file.path(out_dir, "brfss_2011plus_appended_from_r.dta")
 
 # ============================================================================
 # 2. DEFINE YEARS TO LOAD
@@ -133,6 +136,11 @@ out_dta  <- file.path(brfss_root, "output", "brfss_appended_from_r.dta")
 years_to_load <- NULL
 first_year <- 2023
 last_year  <- 2024
+
+env_years <- Sys.getenv("BRFSS_YEARS", unset = "")
+if (nzchar(env_years)) {
+  years_to_load <- as.integer(strsplit(env_years, "[,[:space:]]+")[[1]])
+}
 
 if (!is.null(years_to_load)) {
   years <- sort(unique(as.integer(years_to_load)))
@@ -216,7 +224,7 @@ saveRDS(brfss, out_rds)
 cat(paste0("Saved: ", out_rds, "\n"))
 
 # Save as a separate Stata .dta export for R users.
-# This avoids overwriting the Stata-native output from 01_load_and_append.do.
+# This avoids overwriting the Stata-native output from 01_load_2011plus.do.
 # NOTE: Stata has a 32,767-variable limit and 2 billion obs limit.
 # haven::write_dta() handles the conversion.
 tryCatch({
@@ -316,7 +324,7 @@ if (all(year_counts$n > 0)) {
 cat("\n============================================\n")
 cat("   VALIDATION COMPLETE\n")
 cat("============================================\n")
-cat("\nNext step: run 02_clean_and_harmonize.R\n")
+cat("\nNext step: run 02_clean_2011plus.R\n")
 
 ################################################################################
 # NOTES FOR USERS:
@@ -336,8 +344,8 @@ cat("\nNext step: run 02_clean_and_harmonize.R\n")
 #      vs. _racegr4 (2022)
 #    - Income: income2 (2011-2020) vs. income3 (2021-2024)
 #    - Sex: sex (2011-2020) vs. sexvar/birthsex (2021-2024)
-#    - COPD: chccopd/chccopd1 (older layouts) vs. chccopd3 (modern layouts)
-#    These are harmonized in 02_clean_and_harmonize.R.
+#    - COPD: chccopd/chccopd1 (older layouts) vs. chccopd3 (newer layouts)
+#    These are harmonized in 02_clean_2011plus.R.
 #
 # 4. bind_rows() HANDLING: dplyr::bind_rows() gracefully handles differing
 #    column sets — columns that exist in some years but not others will have

@@ -1,22 +1,22 @@
 ********************************************************************************
-* 01_load_and_append.do
+* 01_load_2011plus.do
 *
 * Purpose: Import BRFSS SAS Transport (.XPT) files for each survey year,
 *          add a survey year identifier, and append all years into a single
 *          stacked dataset.
 *
 * Input:   data/raw/LLCP20XX.XPT   (default: 2023-2024; expandable to 2011-2024)
-* Output:  output/brfss_appended.dta
+* Output:  output/brfss_2011plus_appended.dta
 *
 * Usage:   Run this script from the brfss/ directory, brfss/code/, or the repo root:
 *            cd "/path/to/brfss"
-*            do code/01_load_and_append.do
+*            do code/01_load_2011plus.do
 *          or
 *            cd "/path/to/brfss/code"
-*            do 01_load_and_append.do
+*            do 01_load_2011plus.do
 *          or
 *            cd "/path/to/econ-data-starters"
-*            do brfss/code/01_load_and_append.do
+*            do brfss/code/01_load_2011plus.do
 *
 * Data:    Behavioral Risk Factor Surveillance System (BRFSS)
 *          CDC annual telephone health survey, 400,000+ adults per year.
@@ -26,7 +26,7 @@
 *
 * Note:    The raw files are SAS Transport (.XPT) format distributed by CDC.
 *          Variable names in XPT files are ALL CAPS. Some variable names
-*          changed across years (handled in 02_clean_and_harmonize.do).
+*          changed across years (handled in 02_clean_2011plus.do).
 *
 * Author:  Austin Denteh (legacy code and Claude Code)
 * Date:    February 2026
@@ -45,16 +45,16 @@ set more off
 * global brfss_root "/path/to/brfss"
 
 local cwd `"`c(pwd)'"'
-if "$brfss_root" != "" & fileexists("$brfss_root/code/01_load_and_append.do") {
+if "$brfss_root" != "" & fileexists("$brfss_root/code/01_load_2011plus.do") {
     global brfss_root "$brfss_root"
 }
-else if fileexists("code/01_load_and_append.do") & fileexists("README.md") {
+else if fileexists("code/01_load_2011plus.do") & fileexists("README.md") {
     global brfss_root "`cwd'"
 }
-else if fileexists("01_load_and_append.do") & fileexists("../README.md") {
+else if fileexists("01_load_2011plus.do") & fileexists("../README.md") {
     global brfss_root "`cwd'/.."
 }
-else if fileexists("brfss/code/01_load_and_append.do") & fileexists("brfss/README.md") {
+else if fileexists("brfss/code/01_load_2011plus.do") & fileexists("brfss/README.md") {
     global brfss_root "`cwd'/brfss"
 }
 else {
@@ -67,7 +67,14 @@ cd "$brfss_root"
 display as text "Using BRFSS root: $brfss_root"
 
 local raw_dir  "data/raw"
-local out_dta  "output/brfss_appended.dta"
+if "$brfss_output_dir" != "" {
+    local out_dir "$brfss_output_dir"
+}
+else {
+    local out_dir "output"
+}
+capture mkdir "`out_dir'"
+local out_dta  "`out_dir'/brfss_2011plus_appended.dta"
 
 * ============================================================================
 * 2. DEFINE YEARS TO LOAD
@@ -86,6 +93,10 @@ local out_dta  "output/brfss_appended.dta"
 local years_to_load ""
 local first_year 2023
 local last_year  2024
+
+if "$brfss_years" != "" {
+    local years_to_load "$brfss_years"
+}
 
 local years ""
 if trim(`"`years_to_load'"') != "" {
@@ -256,7 +267,7 @@ if `any_empty' == 0 {
 display as text _newline "============================================"
 display as text "   VALIDATION COMPLETE"
 display as text "============================================"
-display as text _newline "Next step: run 02_clean_and_harmonize.do"
+display as text _newline "Next step: run 02_clean_2011plus.do"
 
 ********************************************************************************
 * NOTES FOR USERS:
@@ -275,8 +286,8 @@ display as text _newline "Next step: run 02_clean_and_harmonize.do"
 *      vs. _RACEGR4 (2022)
 *    - Income: INCOME2 (2011-2020) vs. INCOME3 (2021-2024)
 *    - Sex: SEX (2011-2020) vs. SEXVAR/BIRTHSEX (2021-2024)
-*    - COPD: CHCCOPD / CHCCOPD1 (older layouts) vs. CHCCOPD3 (modern layouts)
-*    These are harmonized in 02_clean_and_harmonize.do.
+*    - COPD: CHCCOPD / CHCCOPD1 (older layouts) vs. CHCCOPD3 (newer layouts)
+*    These are harmonized in 02_clean_2011plus.do.
 *
 * 4. APPEND WITH FORCE: We use -append, force- because variable lists differ
 *    across years. Variables that exist in some years but not others will have

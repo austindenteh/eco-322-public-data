@@ -10,7 +10,7 @@ These folders are lightweight starting points for reproducible analysis workflow
 
 | Dataset | Folder | Coverage | Starter focus |
 |---|---|---:|---|
-| BRFSS | [`brfss/`](brfss/) | 2011-2024 | Adult health behaviors, chronic conditions, preventive care, insurance, and survey design variables |
+| BRFSS | [`brfss/`](brfss/) | 2000-2024 | Separate 2000-2010 pre-2011 and 2011-2024 workflows, plus an explicit cross-era bridge |
 | IPUMS ACS | [`ipums_acs_1_year_sample/`](ipums_acs_1_year_sample/) | 2006-2024 | ACS 1-year microdata on insurance, education, immigration, demographics, and employment |
 | December CPS Food Security Supplement | [`dec_cps_food_insecurity_supplement/`](dec_cps_food_insecurity_supplement/) | 2001-2025 | Food insecurity, SNAP, food assistance, household resources, and CPS weights |
 | March CPS / ASEC | [`march_cps/`](march_cps/) | 2005-2025 | Income, insurance, labor-market outcomes, demographics, and IPUMS CPS extract workflows |

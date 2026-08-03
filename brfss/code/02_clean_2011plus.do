@@ -1,24 +1,24 @@
 ********************************************************************************
-* 02_clean_and_harmonize.do
+* 02_clean_2011plus.do
 *
 * Purpose: Clean and harmonize BRFSS variables across survey years.
 *          Creates consistent demographic, health, and survey design variables
 *          that can be used for pooled cross-year analysis.
 *          Works with any year range from 2011-2024 (default: 2023-2024).
 *
-* Input:   output/brfss_appended.dta  (from 01_load_and_append.do)
-* Output:  output/brfss_clean.dta
+* Input:   output/brfss_2011plus_appended.dta  (from 01_load_2011plus.do)
+* Output:  output/brfss_2011plus_clean.dta
 *
-* Usage:   Run after 01_load_and_append.do from the brfss/ directory,
+* Usage:   Run after 01_load_2011plus.do from the brfss/ directory,
 *          brfss/code/, or repo root:
 *            cd "/path/to/brfss"
-*            do code/02_clean_and_harmonize.do
+*            do code/02_clean_2011plus.do
 *          or
 *            cd "/path/to/brfss/code"
-*            do 02_clean_and_harmonize.do
+*            do 02_clean_2011plus.do
 *          or
 *            cd "/path/to/econ-data-starters"
-*            do brfss/code/02_clean_and_harmonize.do
+*            do brfss/code/02_clean_2011plus.do
 *
 * Key harmonization issues:
 *   - Race/ethnicity: _RACEGR2 (2011-2014) vs. _RACEGR3 (2015-2021, 2023-2024)
@@ -28,7 +28,7 @@
 *   - Age: _IMPAGE (2011-2012) vs. _AGE80 (2013-2024)
 *   - Employment: EMPLOY (2011-2012) vs. EMPLOY1 (2013-2024)
 *   - Diabetes: DIABETE3 (2011-2014) vs. DIABETE4 (later years)
-*   - COPD: CHCCOPD / CHCCOPD1 (older layouts) vs. CHCCOPD3 (modern layouts)
+*   - COPD: CHCCOPD / CHCCOPD1 (older layouts) vs. CHCCOPD3 (newer layouts)
 *   - Calculated BMI: _BMI5 available throughout, but coding may shift
 *
 * Author:  Austin Denteh (legacy code and Claude Code)
@@ -47,16 +47,16 @@ set more off
 * global brfss_root "/path/to/brfss"
 
 local cwd `"`c(pwd)'"'
-if "$brfss_root" != "" & fileexists("$brfss_root/code/02_clean_and_harmonize.do") {
+if "$brfss_root" != "" & fileexists("$brfss_root/code/02_clean_2011plus.do") {
     global brfss_root "$brfss_root"
 }
-else if fileexists("code/02_clean_and_harmonize.do") & fileexists("README.md") {
+else if fileexists("code/02_clean_2011plus.do") & fileexists("README.md") {
     global brfss_root "`cwd'"
 }
-else if fileexists("02_clean_and_harmonize.do") & fileexists("../README.md") {
+else if fileexists("02_clean_2011plus.do") & fileexists("../README.md") {
     global brfss_root "`cwd'/.."
 }
-else if fileexists("brfss/code/02_clean_and_harmonize.do") & fileexists("brfss/README.md") {
+else if fileexists("brfss/code/02_clean_2011plus.do") & fileexists("brfss/README.md") {
     global brfss_root "`cwd'/brfss"
 }
 else {
@@ -68,8 +68,15 @@ else {
 cd "$brfss_root"
 display as text "Using BRFSS root: $brfss_root"
 
-local in_dta   "output/brfss_appended.dta"
-local out_dta  "output/brfss_clean.dta"
+if "$brfss_output_dir" != "" {
+    local out_dir "$brfss_output_dir"
+}
+else {
+    local out_dir "output"
+}
+capture mkdir "`out_dir'"
+local in_dta   "`out_dir'/brfss_2011plus_appended.dta"
+local out_dta  "`out_dir'/brfss_2011plus_clean.dta"
 
 * ============================================================================
 * 2. LOAD APPENDED DATA
@@ -104,6 +111,17 @@ display as text "Survey design set: svyset _psu [pw=_llcpwt], strata(_ststr) sin
 gen statefips = _state
 label var statefips "State FIPS code"
 
+* CTYCODE1 is disclosed in the 2011-2012 public files. Later 2011-plus files do
+* not expose it. Exclude CDC nonresponse codes before constructing county FIPS.
+gen double county_code_raw = .
+capture replace county_code_raw = real(ctycode1) if inrange(real(ctycode1), 1, 840) & !inlist(real(ctycode1), 777, 888, 999)
+capture replace county_code_raw = ctycode1 if missing(county_code_raw) & inrange(ctycode1, 1, 840) & !inlist(ctycode1, 777, 888, 999)
+gen str12 county_code_source = "ctycode1" if !missing(county_code_raw)
+gen double countyfips = statefips * 1000 + county_code_raw if !missing(statefips, county_code_raw)
+label var county_code_raw "Raw BRFSS county code from CTYCODE1"
+label var county_code_source "Source variable used for county_code_raw"
+label var countyfips "County FIPS from state FIPS and CTYCODE1"
+
 * --- 4b. Interview month and year -------------------------------------------
 * imonth/iyear are string in some years, numeric in others.
 capture destring imonth, replace
@@ -116,7 +134,7 @@ gen year = iyear
 label var year "Interview year"
 
 * --- 4c. Age -----------------------------------------------------------------
-* _AGE80 is the standard modern imputed age. _IMPAGE is the early fallback.
+* _AGE80 is the standard newer imputed age. _IMPAGE is the early fallback.
 * _AGEG5YR: Age in five-year categories (calculated variable)
 gen age = .
 capture replace age = _age80 if !missing(_age80)
@@ -127,7 +145,7 @@ gen age_cat = _ageg5yr
 label var age_cat "Age in 5-year categories (CDC calculated)"
 
 * --- 4d. Sex / Gender -------------------------------------------------------
-* Prefer the most specific modern source variable available, then fall back.
+* Prefer the most specific newer source variable available, then fall back.
 
 gen female = .
 capture replace female = (sexvar == 2) if !missing(sexvar)
@@ -322,7 +340,8 @@ label var current_smoker "Current smoker (daily or some days)"
 * These use a consistent coding: 1=Yes, 2=No, 7=DK, 9=Refused
 
 * Diabetes
-capture gen diabetes = (diabete4 == 1) if diabete4 == 1 | diabete4 == 3
+gen diabetes = .
+capture replace diabetes = (diabete4 == 1) if diabete4 == 1 | diabete4 == 3
 capture replace diabetes = 0 if diabete4 == 3
 capture replace diabetes = (diabete3 == 1) if missing(diabetes) & (diabete3 == 1 | diabete3 == 3)
 capture replace diabetes = 0 if missing(diabetes) & diabete3 == 3
@@ -336,7 +355,8 @@ capture gen asthma_current = (asthnow == 1) if asthnow == 1 | asthnow == 2
 label var asthma_current "Still have asthma"
 
 * COPD
-capture gen copd = (chccopd3 == 1) if chccopd3 == 1 | chccopd3 == 2
+gen copd = .
+capture replace copd = (chccopd3 == 1) if chccopd3 == 1 | chccopd3 == 2
 capture replace copd = 0 if chccopd3 == 2
 capture replace copd = (chccopd == 1) if missing(copd) & (chccopd == 1 | chccopd == 2)
 capture replace copd = 0 if missing(copd) & chccopd == 2
@@ -357,6 +377,27 @@ label var heartattack "Ever told have heart attack (MI)"
 * ============================================================================
 
 label var surveyyear "BRFSS survey year"
+
+capture confirm variable ctycode1
+if _rc == 0 {
+    tempvar expected_county expected_countyfips
+    gen double `expected_county' = .
+    capture replace `expected_county' = real(ctycode1) if inrange(real(ctycode1), 1, 840) & !inlist(real(ctycode1), 777, 888, 999)
+    capture replace `expected_county' = ctycode1 if missing(`expected_county') & inrange(ctycode1, 1, 840) & !inlist(ctycode1, 777, 888, 999)
+    gen double `expected_countyfips' = statefips * 1000 + `expected_county' if !missing(statefips, `expected_county')
+    quietly count if !(county_code_raw == `expected_county' | (missing(county_code_raw) & missing(`expected_county')))
+    if r(N) > 0 {
+        display as error "[FAIL] county_code_raw does not follow CTYCODE1 in " r(N) " row(s)."
+        exit 459
+    }
+    quietly count if !(countyfips == `expected_countyfips' | (missing(countyfips) & missing(`expected_countyfips')))
+    if r(N) > 0 {
+        display as error "[FAIL] countyfips does not follow CTYCODE1 in " r(N) " row(s)."
+        exit 459
+    }
+}
+quietly count if !missing(countyfips)
+display as text "[PASS] CTYCODE1 county construction validated; non-missing countyfips rows: " r(N)
 
 sort surveyyear statefips
 compress
@@ -477,7 +518,7 @@ display as text "============================================"
 *    INCOME2 scale. If you need the finer 2021+ categories ($100-150K,
 *    $150-200K, $200K+), use INCOME3 directly for those years.
 *
-* 8. OUTPUTS: This script writes the Stata-native brfss_clean.dta.
-*    The R script writes a separate brfss_clean_from_r.dta export so the
+* 8. OUTPUTS: This script writes the Stata-native brfss_2011plus_clean.dta.
+*    The R script writes a separate brfss_2011plus_clean_from_r.dta export so the
 *    two languages do not overwrite each other.
 ********************************************************************************

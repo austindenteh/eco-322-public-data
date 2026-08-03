@@ -1,20 +1,20 @@
 ################################################################################
-# 01_load_and_append_optional_low_memory.R
+# 01_load_2011plus_optional_low_memory.R
 #
-# Purpose: Optional low-memory alternative to 01_load_and_append.R.
+# Purpose: Optional low-memory alternative to 01_load_2011plus.R.
 #          Reads one BRFSS year at a time, keeps only the raw columns needed by
-#          02_clean_and_harmonize.R plus any user-requested extras, writes
+#          02_clean_2011plus.R plus any user-requested extras, writes
 #          temporary yearly files, and then appends them into the usual
-#          output/brfss_appended.rds file.
+#          output/brfss_2011plus_appended.rds file.
 #
 # Important: This script is designed for the standard starter workflow.
 #            It does NOT import the full BRFSS raw file. If you need many extra
 #            raw variables or optional-module variables, use
-#            01_load_and_append.R instead.
+#            01_load_2011plus.R instead.
 #
 # Input:   data/raw/LLCP20XX.XPT
-# Output:  output/brfss_appended.rds
-#          output/brfss_appended_low_memory_from_r.dta (optional)
+# Output:  output/brfss_2011plus_appended.rds
+#          output/brfss_2011plus_appended_low_memory_from_r.dta (optional)
 #          output/_tmp_low_memory/*.rds (temporary yearly files)
 #
 # Usage:   Run from brfss/, from the repo root, or set BRFSS_ROOT explicitly.
@@ -137,14 +137,14 @@ make_year_label <- function(years) {
 # ============================================================================
 # USER SETTINGS
 # ============================================================================
-# This script is optional. Most users should keep using 01_load_and_append.R.
+# This script is optional. Most users should keep using 01_load_2011plus.R.
 # Use this version if loading many BRFSS years exhausts RAM on your machine.
 #
 # What this script does:
 #   1. Reads one year at a time
-#   2. Keeps only the raw columns needed by 02_clean_and_harmonize.R
+#   2. Keeps only the raw columns needed by 02_clean_2011plus.R
 #   3. Saves a temporary yearly .rds file
-#   4. Appends those yearly files into output/brfss_appended.rds
+#   4. Appends those yearly files into output/brfss_2011plus_appended.rds
 #
 # What this script does NOT do:
 #   - It does not import the full BRFSS raw file
@@ -154,7 +154,7 @@ make_year_label <- function(years) {
 #     meanings or value definitions across years
 #
 # If you need many extra raw variables or optional-module variables, use the
-# standard 01_load_and_append.R workflow instead.
+# standard 01_load_2011plus.R workflow instead.
 
 # Choose either a consecutive year range or an explicit year list.
 # If years_to_load is not NULL, it overrides first_year/last_year.
@@ -165,6 +165,11 @@ years_to_load <- NULL
 # Consecutive-year option.
 first_year <- 2023
 last_year  <- 2024
+
+env_years <- Sys.getenv("BRFSS_YEARS", unset = "")
+if (nzchar(env_years)) {
+  years_to_load <- as.integer(strsplit(env_years, "[,[:space:]]+")[[1]])
+}
 
 # If TRUE, delete and rebuild the temporary low-memory folder each time.
 overwrite_temp_files <- TRUE
@@ -182,10 +187,10 @@ write_dta_export <- FALSE
 extra_keep_vars <- c()
 
 # Add cross-year raw variable families here when names differ by year.
-# The list name becomes the merged output column name in brfss_appended.rds.
+# The list name becomes the merged output column name in brfss_2011plus_appended.rds.
 # IMPORTANT: This only merges raw aliases into one column. If the coding or
 # meaning of your added variable changes across years, you must harmonize that
-# variable later in 02_clean_and_harmonize.R / .do or in your analysis code.
+# variable later in 02_clean_2011plus.R / .do or in your analysis code.
 # Example:
 # extra_var_families <- list(
 #   sleep_hours = c("sleptim1", "sleptim2"),
@@ -202,13 +207,16 @@ extra_var_families <- list()
 # Optional manual override if auto-detection fails:
 # Sys.setenv(BRFSS_ROOT = "/path/to/brfss")
 
-brfss_root <- resolve_brfss_root("01_load_and_append_optional_low_memory.R")
+brfss_root <- resolve_brfss_root("01_load_2011plus_optional_low_memory.R")
 cat(paste0("Using BRFSS root: ", brfss_root, "\n"))
 
 raw_dir  <- file.path(brfss_root, "data", "raw")
-out_rds  <- file.path(brfss_root, "output", "brfss_appended.rds")
-out_dta  <- file.path(brfss_root, "output", "brfss_appended_low_memory_from_r.dta")
-temp_dir <- file.path(brfss_root, "output", "_tmp_low_memory")
+output_override <- Sys.getenv("BRFSS_OUTPUT_DIR", unset = "")
+out_dir <- if (nzchar(output_override)) output_override else file.path(brfss_root, "output")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+out_rds  <- file.path(out_dir, "brfss_2011plus_appended.rds")
+out_dta  <- file.path(out_dir, "brfss_2011plus_appended_low_memory_from_r.dta")
+temp_dir <- file.path(out_dir, "_tmp_low_memory")
 
 if (dir.exists(temp_dir)) {
   if (overwrite_temp_files) {
@@ -230,7 +238,8 @@ dir.create(temp_dir, recursive = TRUE, showWarnings = FALSE)
 
 core_keep_families <- list(
   survey_design = c("_psu", "_ststr", "_llcpwt"),
-  state_id = c("_state"),
+  geography = c("_state", "ctycode1"),
+  record_id = c("seqno"),
   interview_timing = c("imonth", "iyear"),
   demographics = c(
     "_impage", "_age80", "_ageg5yr",
@@ -260,7 +269,7 @@ if (length(extra_var_families) > 0) {
     paste(
       "[INFO] extra_var_families only merge raw aliases into one column.",
       "If coding or meanings change across years, harmonize that added variable",
-      "later in 02_clean_and_harmonize.R / .do or in your analysis code.\n"
+      "later in 02_clean_2011plus.R / .do or in your analysis code.\n"
     )
   )
 }
@@ -482,13 +491,13 @@ if (cleanup_temp_files) {
 cat("\n============================================\n")
 cat("   VALIDATION COMPLETE\n")
 cat("============================================\n")
-cat("\nNext step: run 02_clean_and_harmonize.R\n")
+cat("\nNext step: run 02_clean_2011plus.R\n")
 
 ################################################################################
 # NOTES FOR USERS:
 #
-# 1. SAME NEXT STEP: The output file is still output/brfss_appended.rds, so you
-#    can run 02_clean_and_harmonize.R exactly as usual after this script.
+# 1. SAME NEXT STEP: The output is still brfss_2011plus_appended.rds, so you
+#    can run 02_clean_2011plus.R exactly as usual after this script.
 #
 # 2. EXTRA VARIABLES: extra_keep_vars are best when a variable name is stable
 #    across years. extra_var_families are best when the raw names differ by
@@ -497,5 +506,5 @@ cat("\nNext step: run 02_clean_and_harmonize.R\n")
 #    or value definitions for you.
 #
 # 3. USE THE FULL SCRIPT WHEN NEEDED: If your project depends on many raw BRFSS
-#    columns or optional-module variables, use 01_load_and_append.R instead.
+#    columns or optional-module variables, use 01_load_2011plus.R instead.
 ################################################################################
