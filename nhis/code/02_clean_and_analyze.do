@@ -57,10 +57,14 @@ else {
 }
 
 cd "$nhis_root"
-capture mkdir "output"
+local output_dir "output"
+if "$nhis_output_dir" != "" {
+    local output_dir "$nhis_output_dir"
+}
+capture mkdir "`output_dir'"
 
-local in_dta  "output/nhis_adult.dta"
-local out_dta "output/nhis_adult_clean.dta"
+local in_dta  "`output_dir'/nhis_adult.dta"
+local out_dta "`output_dir'/nhis_adult_clean.dta"
 
 * Public starter scripts keep examples visible but off by default.
 local run_examples 0

@@ -112,7 +112,11 @@ resolve_nhis_root <- function(script_name) {
 nhis_root <- resolve_nhis_root("02_clean_and_analyze.R")
 cat(paste0("Using NHIS root: ", nhis_root, "\n"))
 
-out_dir <- file.path(nhis_root, "output")
+if (!exists("nhis_output_dir", inherits = TRUE)) {
+  output_env <- Sys.getenv("NHIS_OUTPUT_DIR", unset = "")
+  nhis_output_dir <- if (nzchar(output_env)) output_env else file.path(nhis_root, "output")
+}
+out_dir <- nhis_output_dir
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 if (!exists("run_examples", inherits = TRUE)) {
@@ -125,9 +129,9 @@ if (!exists("write_dta_export", inherits = TRUE)) {
   write_dta_export <- FALSE
 }
 
-in_rds  <- file.path(nhis_root, "output", "nhis_adult.rds")
-out_rds <- file.path(nhis_root, "output", "nhis_adult_clean.rds")
-out_dta <- file.path(nhis_root, "output", "nhis_adult_clean_from_r.dta")
+in_rds  <- file.path(out_dir, "nhis_adult.rds")
+out_rds <- file.path(out_dir, "nhis_adult_clean.rds")
+out_dta <- file.path(out_dir, "nhis_adult_clean_from_r.dta")
 
 # ============================================================================
 # 2. LOAD DATA

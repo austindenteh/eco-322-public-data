@@ -22,6 +22,10 @@ set varabbrev off
 * ============================================================================
 * USER SETTINGS
 * ============================================================================
+* Recommended for most student projects. Use the full pre-2011 loader only
+* when the project needs a broad raw-variable surface beyond the starter and
+* extras.
+*
 * Optional manual root override:
 * global brfss_root "/path/to/econ-data-starters/brfss"
 

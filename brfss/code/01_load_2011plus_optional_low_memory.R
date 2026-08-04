@@ -137,8 +137,8 @@ make_year_label <- function(years) {
 # ============================================================================
 # USER SETTINGS
 # ============================================================================
-# This script is optional. Most users should keep using 01_load_2011plus.R.
-# Use this version if loading many BRFSS years exhausts RAM on your machine.
+# Recommended for most student projects. Use 01_load_2011plus.R only when the
+# project needs a broad raw-variable surface beyond the starter and extras.
 #
 # What this script does:
 #   1. Reads one year at a time

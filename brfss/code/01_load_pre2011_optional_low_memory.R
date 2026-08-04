@@ -223,8 +223,8 @@ extract_pre2011_xpt <- function(source, temp_dir) {
 # ============================================================================
 # USER SETTINGS
 # ============================================================================
-# This script is optional. Use it when the full pre-2011 loader produces a larger
-# appended file than you need.
+# Recommended for most student projects. Use the full pre-2011 loader only when
+# the project needs a broad raw-variable surface beyond the starter and extras.
 #
 # What this script does:
 #   1. Reads one pre-2011 year at a time

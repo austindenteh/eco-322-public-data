@@ -66,8 +66,8 @@ local temp_dir "output/_tmp_low_memory_stata"
 * ============================================================================
 * USER SETTINGS
 * ============================================================================
-* This script is optional. Most users should keep using 01_load_and_subset.do.
-* Use this version if loading many ACS years strains your machine.
+* Recommended for most student projects. Use 01_load_and_subset.do only when
+* the project needs a broad raw-variable surface beyond the starter and extras.
 *
 * What this script does:
 *   1. Imports one yearly ACS file at a time

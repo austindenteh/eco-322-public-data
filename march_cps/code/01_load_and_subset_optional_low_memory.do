@@ -56,6 +56,13 @@ local out_dta "output/cps_asec.dta"
 * 2. USER SETTINGS
 * ============================================================================
 
+* Recommended for most student projects. Start with the compact default range,
+* confirm the variables and cleaner, and then expand the years.
+* Examples:
+*   global cps_years_to_load "2025"
+*   global cps_years_to_load "2019 2021 2023 2025"
+*   local extra_keep_vars "diffhear diffeye"
+
 local first_year 2005
 local last_year 2010
 if "$cps_first_year" != "" local first_year "$cps_first_year"

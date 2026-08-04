@@ -68,6 +68,8 @@ local out_dta "`output_dir'/`output_basename'.dta"
 local out_csv "`output_dir'/`output_basename'.csv"
 
 * --- USER SETTINGS: waves, years, and extras -------------------------------
+* Recommended for most student projects that do not need every RAND HRS raw
+* column. Select the waves and extra stubs required by the project.
 * Leave hrs_waves and hrs_years blank to keep all 16 RAND HRS waves.
 *
 * Select by survey year:

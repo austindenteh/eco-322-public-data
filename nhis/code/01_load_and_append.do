@@ -70,7 +70,11 @@ else {
 }
 
 cd "$nhis_root"
-capture mkdir "output"
+local output_dir "output"
+if "$nhis_output_dir" != "" {
+    local output_dir "$nhis_output_dir"
+}
+capture mkdir "`output_dir'"
 
 * --- Post-2019 years (redesigned, CSV format — DEFAULT) ---
 * These years use simple CSV files. No special setup needed.
@@ -747,6 +751,11 @@ foreach y of local post2019_years {
     display as text "  Importing `csv_file'..."
     import delimited using "`csv_file'", clear varnames(1) case(lower)
 
+    * CDC renamed these post-redesign fields in 2021. Keep one stable starter
+    * name across all post-2019 years.
+    capture rename educp_a    educ_a
+    capture rename citznstp_a citizenp_a
+
     * Add survey year if not already present
     capture confirm variable srvy_yr
     if _rc != 0 {
@@ -865,8 +874,8 @@ label var era_post2019 "Post-2019 redesign era (0=pre-2019, 1=2019+)"
 sort srvy_yr hhx
 compress
 
-save "output/nhis_adult.dta", replace
-display as text "Saved: output/nhis_adult.dta"
+save "`output_dir'/nhis_adult.dta", replace
+display as text "Saved: `output_dir'/nhis_adult.dta"
 display as text "Total observations: " _N
 
 * ============================================================================
@@ -1109,8 +1118,8 @@ if `n_extra_families' > 0 {
 
 sort srvy_yr hhx
 compress
-save "output/nhis_child.dta", replace
-display as text "Saved: output/nhis_child.dta"
+save "`output_dir'/nhis_child.dta", replace
+display as text "Saved: `output_dir'/nhis_child.dta"
 
 * ============================================================================
 * 9. VALIDATION CHECKS
@@ -1121,7 +1130,7 @@ display as text "   VALIDATION CHECKS"
 display as text "============================================"
 
 * --- ADULT FILE ---
-use "output/nhis_adult.dta", clear
+use "`output_dir'/nhis_adult.dta", clear
 
 * 9a. Year distribution
 display as text _newline "--- Observations by year ---"
@@ -1167,7 +1176,7 @@ quietly tab srvy_yr
 display as text "[INFO] Unique survey years: " r(r)
 
 * --- CHILD FILE ---
-use "output/nhis_child.dta", clear
+use "`output_dir'/nhis_child.dta", clear
 display as text _newline "--- Child file ---"
 display as text "Total child observations: " _N
 tab srvy_yr

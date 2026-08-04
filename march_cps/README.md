@@ -140,7 +140,7 @@ Sys.setenv(CPS_YEARS = "2021,2022")
 source("code/01_load_and_subset.R")
 ```
 
-The standard loaders keep all columns from the yearly files. If you only need the starter variables, use the optional low-memory loader instead:
+The standard loaders keep all columns from the yearly files. For most student projects, use the low-memory loader and add only the project-specific variables that are needed:
 
 **Stata:**
 ```stata
@@ -152,9 +152,19 @@ do code/01_load_and_subset_optional_low_memory.do
 source("code/01_load_and_subset_optional_low_memory.R")
 ```
 
-The optional loaders read one year at a time, keep only the columns needed by `02_clean_demographics.*`, write temporary selected-column files, append those smaller files, and then save the usual `output/cps_asec.*` working data. This mirrors the ACS low-memory strategy and avoids loading the full-column 2005-2025 CPS stack at once.
+The optional loaders read one year at a time, keep only the columns needed by `02_clean_demographics.*`, write temporary selected-column files, append those smaller files, and then save the usual `output/cps_asec.*` working data. Both R and Stata select columns while reading each yearly DTA file. This avoids loading the full-column 2005-2025 CPS stack at once, although the final appended selected-column file must still fit in memory.
+
+The R settings can be supplied before `source()`. For example:
+
+```r
+years_to_load <- c(2019L, 2021L, 2023L, 2025L)
+extra_keep_vars <- c("diffhear", "diffeye")
+source("code/01_load_and_subset_optional_low_memory.R")
+```
 
 Replicate weights are off by default in the optional loaders because they add 160 columns; turn on `keep_replicate_weights` inside the optional script if you need design-based standard errors. Add stable IPUMS variable names to `extra_keep_vars` / `local extra_keep_vars` if you want the low-memory loader to carry extra columns forward.
+
+R writes the compact `output/cps_asec.rds` by default and skips the duplicate Stata export. Set `write_dta_export <- TRUE` before `source()` only when an R-created `.dta` copy is needed.
 
 If an extra variable changes names across years, use `extra_var_families` instead. Each family lists raw aliases and creates one merged output column by filling from those aliases in order. This is only a name-alias merge; if the coding or meaning changes across years, harmonize that added variable later in `02_clean_demographics.*` or in your analysis code.
 

@@ -65,8 +65,8 @@ local out_dta "output/dec_cps_working.dta"
 * ============================================================================
 * USER SETTINGS
 * ============================================================================
-* This script is optional. Most users should keep using 01_load_and_subset.do.
-* Use this version if the full December CPS extract strains your machine.
+* Recommended for most student projects. Use 01_load_and_subset.do only when
+* the project needs a broad raw-variable surface beyond the starter and extras.
 *
 * What this script does:
 *   1. Reads only selected raw columns from the IPUMS CPS extract

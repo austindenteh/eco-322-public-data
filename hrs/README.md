@@ -86,7 +86,9 @@ Outputs:
 
 The R loader writes only `.rds` by default to avoid accidentally creating multi-gigabyte duplicate files. Set `write_dta_export <- TRUE` or `write_csv_export <- TRUE` before sourcing if you need those optional R exports.
 
-### 2. Low-Memory Reshape
+### 2. Recommended Low-Memory Reshape
+
+For most student projects, use this route and select the waves and stubs required by the research question. Use the full-width loader only when the project needs a broad set of additional RAND HRS columns.
 
 Low-memory build:
 
@@ -270,7 +272,7 @@ In Stata, extended missing values are larger than any non-missing number. Use `m
 3. Cohorts enter at different waves, so simple time trends can mix age, period, and cohort composition.
 4. Spouse variables use the `s` prefix and may come from the spouse interview or proxy information.
 5. Cognition measures changed in some later waves. Check the codebook before treating long-run trends as directly comparable.
-6. The full long files are large. Use the optional low-memory scripts when you only need starter variables plus a few extra stubs.
+6. The full long files are large. For most student projects, use the low-memory scripts with selected waves and only the needed extra stubs.
 
 ## Updating for New Waves
 

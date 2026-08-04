@@ -124,7 +124,11 @@ resolve_nhis_root <- function(script_name) {
 nhis_root <- resolve_nhis_root("01_load_and_append.R")
 cat(paste0("Using NHIS root: ", nhis_root, "\n"))
 
-out_dir <- file.path(nhis_root, "output")
+if (!exists("nhis_output_dir", inherits = TRUE)) {
+  output_env <- Sys.getenv("NHIS_OUTPUT_DIR", unset = "")
+  nhis_output_dir <- if (nzchar(output_env)) output_env else file.path(nhis_root, "output")
+}
+out_dir <- nhis_output_dir
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 # --- Post-2019 years (redesigned, CSV format — DEFAULT) ---
@@ -219,6 +223,20 @@ child_starter_vars <- c(
   "notcov_c", "medicare_c", "medicaid_c", "private_c", "phstat_c",
   "wtfa_c", "pstrat", "ppsu"
 )
+
+harmonize_post2019_adult_names <- function(df) {
+  rename_map <- c(
+    "educp_a" = "educ_a",
+    "citznstp_a" = "citizenp_a"
+  )
+  for (old_name in names(rename_map)) {
+    new_name <- unname(rename_map[[old_name]])
+    if (old_name %in% names(df) && !(new_name %in% names(df))) {
+      names(df)[names(df) == old_name] <- new_name
+    }
+  }
+  df
+}
 
 keep_starter_columns <- function(df, sample_type) {
   if (!keep_starter_vars_only) return(df)
@@ -649,6 +667,7 @@ for (y in post2019_years) {
   if (file.exists(csv_file)) {
     df <- read_csv(csv_file, col_types = cols(.default = "c"), show_col_types = FALSE)
     names(df) <- tolower(names(df))
+    df <- harmonize_post2019_adult_names(df)
     df <- type_convert(df, col_types = cols(.default = col_guess()))
     if (!"srvy_yr" %in% names(df)) df$srvy_yr <- y
     df$era_post2019 <- 1L
@@ -705,8 +724,8 @@ cat("\nSaving combined datasets...\n")
 
 # --- Adult ---
 adult <- adult %>% arrange(srvy_yr, hhx)
-saveRDS(adult, file.path(nhis_root, "output", "nhis_adult.rds"))
-cat("Saved: output/nhis_adult.rds\n")
+saveRDS(adult, file.path(out_dir, "nhis_adult.rds"))
+cat("Saved: ", file.path(out_dir, "nhis_adult.rds"), "\n", sep = "")
 if (write_dta_export) {
   tryCatch({
     write_dta(adult, file.path(out_dir, "nhis_adult_from_r.dta"))
@@ -718,8 +737,8 @@ if (write_dta_export) {
 
 # --- Child ---
 child <- child %>% arrange(srvy_yr, hhx)
-saveRDS(child, file.path(nhis_root, "output", "nhis_child.rds"))
-cat("Saved: output/nhis_child.rds\n")
+saveRDS(child, file.path(out_dir, "nhis_child.rds"))
+cat("Saved: ", file.path(out_dir, "nhis_child.rds"), "\n", sep = "")
 if (write_dta_export) {
   tryCatch({
     write_dta(child, file.path(out_dir, "nhis_child_from_r.dta"))

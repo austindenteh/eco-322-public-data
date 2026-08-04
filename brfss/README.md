@@ -128,9 +128,9 @@ Examples:
 
 For non-editing test overrides, set `BRFSS_YEARS` and `BRFSS_OUTPUT_DIR` in R or globals `$brfss_years` and `$brfss_output_dir` in Stata. Both 2011-plus loaders honor these settings; the 2011-plus cleaners honor the output-directory setting.
 
-### Optional 2011-Plus Low-Memory Workflows
+### Recommended 2011-Plus Low-Memory Workflows
 
-If you want to load many BRFSS years on a machine with limited RAM, you can use the optional low-memory `01_*` script for your language instead of the standard one.
+For most student projects, use the low-memory `01_*` script for your language. It keeps the starter variables needed by the cleaner plus project-specific extras. Use the full-width loader only when the project genuinely needs a broad set of additional raw variables.
 
 Use:
 - `01_load_2011plus.do` or `01_load_2011plus_optional_low_memory.do` in Stata
@@ -138,7 +138,7 @@ Use:
 
 Do not run both `01_*` scripts for the same language. Pick one path, then continue to Step 3 exactly as usual.
 
-**Optional low-memory Stata loader**
+**Low-memory Stata loader**
 
 ```stata
 cd "/path/to/brfss"
@@ -163,14 +163,16 @@ local extra_var_families ///
 
 This creates one `dental_visit` column by filling from the listed aliases in order. If a family is absent in some loaded years, the script reports which years matched and leaves unmatched years missing for that added column.
 
-**Optional low-memory R loader**
+**Low-memory R loader**
 
 ```r
 setwd("/path/to/brfss")
 source("code/01_load_2011plus_optional_low_memory.R")
 ```
 
-Use this instead of `01_load_2011plus.R`, not in addition to it. For most users, `01_load_2011plus.R` remains the default and simplest choice.
+Use this instead of `01_load_2011plus.R`, not in addition to it. The default is 2023-2024; confirm those years and the requested variables before expanding the range.
+
+R selects the requested columns while reading each annual XPT file. The final appended selected-column file must still fit in memory.
 
 This optional script:
 - reads one year at a time
@@ -226,27 +228,29 @@ This creates harmonized versions of variables that changed names or coding acros
 
 ## Pre-2011 Workflow (2000–2010)
 
-Do not mix these scripts with the `01_load_2011plus` / `02_clean_2011plus` pair. Choose either the full-width or low-memory pre-2011 loader, then run the matching pre-2011 cleaner.
+Do not mix these scripts with the `01_load_2011plus` / `02_clean_2011plus` pair. For most student projects, choose the low-memory pre-2011 loader and then run the pre-2011 cleaner. Use the full-width pre-2011 loader only when the project needs a broad raw-variable surface.
 
 **Stata:**
 
 ```stata
 cd "/path/to/brfss"
-do code/01_load_pre2011.do
+do code/01_load_pre2011_optional_low_memory.do
 do code/02_clean_pre2011.do
 ```
 
-For the selected-column alternative, substitute `01_load_pre2011_optional_low_memory.do` for the first command.
+For a full-width build, substitute `01_load_pre2011.do` for the first command.
 
 **R:**
 
 ```r
 setwd("/path/to/brfss")
-source("code/01_load_pre2011.R")
+source("code/01_load_pre2011_optional_low_memory.R")
 source("code/02_clean_pre2011.R")
 ```
 
-For the selected-column alternative, substitute `01_load_pre2011_optional_low_memory.R` for the first script.
+For a full-width build, substitute `01_load_pre2011.R` for the first script.
+
+The R low-memory loader selects requested columns while reading each annual XPT file. The Stata low-memory loader must import one complete annual XPT file before dropping unused columns, but it reduces each year before appending. In either language, the final 2000-2010 selected-column file must still fit in memory. Neither loader should be used to cross the 2011 methodology break.
 
 The outputs are kept separate from the 2011-plus era:
 

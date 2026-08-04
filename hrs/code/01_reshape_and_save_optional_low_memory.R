@@ -130,6 +130,8 @@ if (!exists("hrs_output_basename", inherits = TRUE)) {
 # ---------------------------------------------------------------------------
 # USER SETTINGS
 # ---------------------------------------------------------------------------
+# Recommended for most student projects that do not need every RAND HRS raw
+# column. Select the waves and extra stubs required by the project.
 # Leave hrs_waves and hrs_years as NULL to keep all 16 waves. Use ONE or both
 # if you want a smaller build. If both are set, the selected waves are combined.
 # Examples:

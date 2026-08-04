@@ -190,13 +190,25 @@ detect_yearly_cps_files <- function(raw_dir) {
   yearly
 }
 
-# User settings ---------------------------------------------------------------
+# USER SETTINGS ---------------------------------------------------------------
 
-# Default March CPS teaching window. Set last_year <- 2025, or use CPS_YEARS,
-# to load the full yearly-file set.
-first_year <- 2005L
-last_year <- 2010L
-years_to_load <- NULL
+# Default March CPS teaching window. Start with this compact range, confirm the
+# variables and cleaner, and then expand the years. You can set these objects
+# before source() instead of editing this file.
+# Examples:
+#   years_to_load <- 2025L
+#   years_to_load <- c(2019L, 2021L, 2023L, 2025L)
+#   extra_keep_vars <- c("diffhear", "diffeye")
+#   extra_var_families <- list(employer_plan = c("covergh", "grpdeply"))
+if (!exists("first_year", inherits = TRUE)) {
+  first_year <- 2005L
+}
+if (!exists("last_year", inherits = TRUE)) {
+  last_year <- 2010L
+}
+if (!exists("years_to_load", inherits = TRUE)) {
+  years_to_load <- NULL
+}
 
 # To run a smaller smoke test without editing this file:
 #   Sys.setenv(CPS_YEARS = "2021,2022")
@@ -210,10 +222,14 @@ if (is.null(years_to_load)) {
 }
 
 # Replicate weights are useful for variance estimation but add many columns.
-keep_replicate_weights <- FALSE
+if (!exists("keep_replicate_weights", inherits = TRUE)) {
+  keep_replicate_weights <- FALSE
+}
 
 # Add extra stable IPUMS variable names here, e.g. c("diffhear", "diffeye").
-extra_keep_vars <- character()
+if (!exists("extra_keep_vars", inherits = TRUE)) {
+  extra_keep_vars <- character()
+}
 
 # Add cross-year raw variable families here when names differ by year.
 # The list name becomes the merged output column name in cps_asec.rds.
@@ -224,11 +240,21 @@ extra_keep_vars <- character()
 # extra_var_families <- list(
 #   employer_plan = c("covergh", "grpdeply")
 # )
-extra_var_families <- list()
+if (!exists("extra_var_families", inherits = TRUE)) {
+  extra_var_families <- list()
+}
 
-overwrite_temp_files <- TRUE
-cleanup_temp_files <- TRUE
-write_dta_export <- TRUE
+if (!exists("overwrite_temp_files", inherits = TRUE)) {
+  overwrite_temp_files <- TRUE
+}
+if (!exists("cleanup_temp_files", inherits = TRUE)) {
+  cleanup_temp_files <- TRUE
+}
+# The compact RDS is the native R output. The optional Stata copy can be large
+# and is off by default because the Stata loader creates its own .dta output.
+if (!exists("write_dta_export", inherits = TRUE)) {
+  write_dta_export <- FALSE
+}
 
 # Core starter variables ------------------------------------------------------
 
@@ -412,6 +438,8 @@ if (write_dta_export) {
   }, error = function(e) {
     cat("Could not save .dta:", e$message, "\n")
   })
+} else {
+  cat("Skipped optional Stata export. Set write_dta_export <- TRUE to create cps_asec_from_r.dta.\n")
 }
 
 if (cleanup_temp_files) {

@@ -140,7 +140,7 @@ Outputs:
 
 The family-year file has one row per selected family wave. The person-year file starts from the cross-year individual file, keeps people with a nonzero family interview number in the selected year by default, and merges selected family-year columns onto those person-year records.
 
-The R loader reads only selected fixed-width columns. The Stata loader uses PSID's provided Stata setup files and trims to the starter variables after import, so Stata may need more memory even when you select only a few years.
+The selected-year main loader is the recommended student route. The R implementation reads only selected fixed-width columns. The Stata implementation uses PSID's provided setup files and trims to the starter variables after import, so Stata may need more memory even when you select only a few years. Start with one wave before expanding a Stata build.
 
 ### 2. Clean Starter Variables
 

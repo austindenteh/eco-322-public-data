@@ -193,9 +193,25 @@ The script auto-detects which year folders are present in `data/` and skips any 
 - `output/nhis_adult.rds` / `output/nhis_child.rds` — R combined files
 - `output/nhis_adult_from_r.dta` / `output/nhis_child_from_r.dta` — optional R-created Stata exports if `write_dta_export <- TRUE`
 
-**Note on R:** The R script requires that `.dta` files already exist for pre-2019 years (since CDC do-files are Stata programs). Run the Stata script first to create the `.dta` files, then the R script can load them. For 2019–2024 only (the default), the R script works standalone. R writes compact `.rds` files by default; set `write_dta_export <- TRUE` only if you also need R-created Stata files.
+**Note on R:** The R script requires that `.dta` files already exist for pre-2019 years (since CDC do-files are Stata programs). Run the Stata script first to create the `.dta` files, then the R script can load them. For post-2019 years, R works standalone. R writes compact `.rds` files by default; set `write_dta_export <- TRUE` only if you also need R-created Stata files.
 
-**Full 2004–2024 adult build:**
+### Recommended Lower-Memory Path
+
+For most student projects, use `01_load_and_append_optional_low_memory.*`. Its teaching-friendly default is 2023-2024 with pre-2019 years off. Confirm that default and any project-specific variables before expanding the range.
+
+```stata
+do code/01_load_and_append_optional_low_memory.do
+```
+
+```r
+source("code/01_load_and_append_optional_low_memory.R")
+```
+
+The R low-memory loader selects requested columns while reading both post-2019 CSVs and pre-2019 component DTA files. The Stata loader processes one year at a time, but its post-2019 CSV imports read the full annual CSV before dropping columns; pre-2019 component construction can also require a broader annual import.
+
+For scratch runs, set `nhis_output_dir` or `NHIS_OUTPUT_DIR` in R, or global `nhis_output_dir` in Stata. The matching cleaner honors the same output-directory override, so test builds do not have to replace the normal `output/` files.
+
+**Full 2004–2024 build:**
 
 Stata is the all-column full-build path:
 
@@ -205,7 +221,7 @@ global nhis_post2019_years "2019 2020 2021 2022 2023 2024"
 do code/01_load_and_append.do
 ```
 
-For lower-memory full-year builds, use the optional low-memory entry point. It keeps the starter variables needed by the cleaner plus any user-requested extras:
+For a lower-memory full-span build, explicitly enable all years. The loader keeps the starter variables needed by the cleaner plus any user-requested extras:
 
 ```stata
 global nhis_pre2019_years "2004 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2017 2018"
@@ -214,6 +230,8 @@ do code/01_load_and_append_optional_low_memory.do
 ```
 
 ```r
+pre2019_years <- 2004:2018
+post2019_years <- 2019:2024
 source("code/01_load_and_append_optional_low_memory.R")
 ```
 
@@ -240,7 +258,13 @@ Creates harmonized cleaned variables across all years using era-aware logic and 
 
 ### Memory and File-Size Notes
 
-The default workflow is already the teaching-friendly, lower-memory NHIS path: it loads only the redesigned 2019–2024 CSV files and writes compact RDS files in R. For a full 2004–2024 build with pre-2019 years, use `code/01_load_and_append_optional_low_memory.R` or `code/01_load_and_append_optional_low_memory.do`. These standalone low-memory scripts keep the variables needed by the starter cleaner, plus any names listed in `extra_vars` / `nhis_extra_keep_vars`.
+The recommended teaching path is `code/01_load_and_append_optional_low_memory.R` or `.do`, which defaults to 2023-2024 and writes the usual cleaner inputs. These standalone scripts keep the variables needed by the starter cleaner, plus any names listed in `extra_vars` / `nhis_extra_keep_vars`.
+
+The implementations have different peak-memory behavior:
+
+- R inspects each source header and selects only the requested raw columns before reading observations.
+- Stata processes and saves one reduced year at a time, but its delimited-text importer reads a complete post-2019 annual CSV before unused columns are dropped.
+- The final appended adult and child working files must still fit in memory in either language.
 
 Use `extra_vars` in R for additional variables with stable names after NHIS harmonization:
 
@@ -281,6 +305,15 @@ Alias families merge columns by name only. If the coding or meaning changes acro
 
 The large files are the Stata-format outputs. A full 2004–2024 all-column Stata adult file and cleaned adult file are each several GB. The R scripts skip `.dta` export by default and, when requested, write `_from_r.dta` files so R outputs do not collide with Stata outputs. For long pre-2019 builds, start with a small `pre2019_years` list and add years incrementally.
 
+Reference measurements from the reviewed local files are below. They are approximate and machine-specific; they are intended to show the scale of the selected-column route, not guarantee runtime on another computer.
+
+| R low-memory selection | Columns read | Result | Saved RDS size | Reference runtime / R heap high-water |
+|---|---|---|---:|---:|
+| Default 2023-2024 | Adult: 31 of 647/630 per year; child: 13 of 370/358 | Adult: 62,151 rows x 32 columns; child: 16,052 x 14 | Adult: 1.1 MB; child: 212 KB | About 2.5 seconds / 134 MB |
+| Pre-redesign check, 2014 only | Adult components: 33 of 641 person, 6 of 127 family, 4 of 17 household, 19 of 787 sample-adult columns | Adult: 36,697 rows x 31 columns; child: 13,380 x 15 | Adult: 606 KB; child: 151 KB | About 2.9 seconds; heap not recorded |
+
+The R heap figure is the sum of R's recorded high-water cell allocations, not total operating-system process memory. Storage speed, software versions, requested extras, and optional exports can materially change these figures.
+
 ---
 
 ## How Variable Harmonization Works
@@ -289,15 +322,15 @@ The starter scripts use a two-step approach to handle the 2019 redesign:
 
 ### Step 1: Name Harmonization (01_load_and_append)
 
-Pre-2019 variable names are renamed to match the post-2019 convention. This allows a clean `append` across all years.
+Pre-2019 variable names and post-redesign aliases are renamed to stable starter names. This allows a clean `append` across all years. In particular, the 2021-2024 adult files use `educp_a` rather than the 2019-2020 `educ_a`, and post-2019 citizenship is released as `citznstp_a`; the loaders normalize these to `educ_a` and `citizenp_a`.
 
-| Pre-2019 Name | Post-2019 Name | Description |
+| Source name(s) | Harmonized starter name | Description |
 |---|---|---|
 | `age_p` | `agep_a` | Age |
 | `sex` | `sex_a` | Sex (same coding: 1=Male, 2=Female) |
 | `origin_i` | `hisp_a` | Hispanic origin |
 | `racerpi2` | `raceallp_a` | Race |
-| `educ1` | `educ_a` | Education |
+| `educ1`; `educp_a` in 2021+ | `educ_a` | Education |
 | `notcov` | `notcov_a` | Uninsured |
 | `medicaid` | `medicaid_a` | Medicaid |
 | `private` | `private_a` | Private insurance |
@@ -306,7 +339,7 @@ Pre-2019 variable names are renamed to match the post-2019 convention. This allo
 | `wtfa_sa` | `wtfa_a` | Sample adult weight |
 | `strat_p` | `pstrat` | Pseudo-stratum (with offset) |
 | `psu_p` | `ppsu` | Pseudo-PSU |
-| `citizenp` | `citizenp_a` | Citizenship |
+| `citizenp`; `citznstp_a` in 2019+ | `citizenp_a` | Citizenship |
 | `plborn` | `plborn_a` | Place of birth |
 | `rat_cat*` | `ratcat_a` | Poverty ratio category (14-level) |
 | `incgrp*` | `incgrp_a` | Family income group |

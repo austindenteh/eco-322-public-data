@@ -144,8 +144,8 @@ coalesce_family_columns <- function(df, output_name, candidate_vars) {
 # ============================================================================
 # USER SETTINGS
 # ============================================================================
-# This script is optional. Most users should keep using 01_load_and_subset.R.
-# Use this version if the full December CPS extract strains your machine.
+# Recommended for most student projects. Use 01_load_and_subset.R only when the
+# project needs a broad raw-variable surface beyond the starter and extras.
 #
 # What this script does:
 #   1. Reads only selected raw columns from the IPUMS CPS extract

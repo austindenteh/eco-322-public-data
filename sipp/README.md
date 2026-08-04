@@ -124,7 +124,9 @@ Stata:
 do code/01_load_modern_primary.do
 ```
 
-Default build: `2024` only. The output is person-month level. The default is intentionally selected-year and selected-variable because modern SIPP files are large.
+Default build: `2024` only. The output is person-month level. This primary loader is already the recommended large-data route: it is intentionally selected-year and selected-variable, so there is no separate `optional_low_memory` script for modern SIPP.
+
+Both R and Stata select requested columns while reading each annual DTA. When a large Census zip cannot be read directly, the loader first expands its DTA member to temporary storage and then performs the selected-column read. The final appended person-month file must still fit in memory.
 
 Outputs:
 

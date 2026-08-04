@@ -90,9 +90,9 @@ normalize_var_names <- function(x) {
 # ============================================================================
 # USER SETTINGS
 # ============================================================================
-# This script is optional. Use it if you only need selected YRBS variables,
-# years, site types, or state samples and want to avoid building/loading the
-# full combined .dta file.
+# Recommended for most student projects. It keeps selected YRBS variables,
+# years, site types, or state samples and avoids building/loading the full
+# combined .dta file.
 
 # Keep all available years by default. To keep selected years, use:
 # years_to_keep <- c(2019, 2021, 2023)

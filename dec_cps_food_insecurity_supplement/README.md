@@ -106,7 +106,7 @@ Sys.setenv(DEC_CPS_ROOT = "/path/to/econ-data-starters/dec_cps_food_insecurity_s
 source("/path/to/econ-data-starters/dec_cps_food_insecurity_supplement/code/01_load_and_subset.R")
 ```
 
-The standard loaders keep all columns from the IPUMS extract. If you only need the starter variables, use the optional low-memory loader instead:
+The standard loaders keep all columns from the IPUMS extract. For most student projects, use the low-memory loader and add only the project-specific variables that are needed:
 
 **Stata:**
 ```stata
@@ -118,7 +118,7 @@ do code/01_load_and_subset_optional_low_memory.do
 source("code/01_load_and_subset_optional_low_memory.R")
 ```
 
-The optional loaders read only the columns needed by `02_clean_and_analyze.*`, plus any user-requested extra columns, and then save the usual `output/dec_cps_working.*` file. The current December CPS extract is a single focused 2.3 GB IPUMS file, so yearly files are not required for the low-memory workflow.
+The low-memory loaders read only the columns needed by `02_clean_and_analyze.*`, plus any user-requested extra columns, and then save the usual `output/dec_cps_working.*` file. Both R and Stata select columns while reading either the pre-converted DTA or the fixed-width IPUMS source. The current December CPS extract is a single focused 2.3 GB multi-year file, so yearly files are not required. Year and state filters are applied after the selected columns are read, and the resulting selected-row working file must still fit in memory.
 
 Add stable IPUMS variable names to `extra_keep_vars` / `local extra_keep_vars` if you want the low-memory loader to carry extra columns forward. In R, you can either edit those settings inside the script or set them before `source()`. If an extra variable changes names across years, use `extra_var_families` instead. Each family lists raw aliases and creates one merged output column by filling from those aliases in order. This is only a name-alias merge; if the coding or meaning changes across years, harmonize that added variable later in `02_clean_and_analyze.*` or in your analysis code.
 

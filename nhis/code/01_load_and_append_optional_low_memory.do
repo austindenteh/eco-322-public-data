@@ -55,12 +55,25 @@ if "$nhis_output_dir" != "" {
 }
 capture mkdir "`output_dir'"
 
-* --- USER SETTINGS: years and extras ---------------------------------------
-* Low-memory defaults to the full reviewed NHIS span. Edit these locals or set
-* globals before running this script if you want a smaller build.
+* --- USER SETTINGS: years, extras, and output -------------------------------
+* The teaching-friendly default is the two most recent reviewed years. Start
+* here, confirm that the requested variables work, and then expand the range.
+*
+* Examples to set before running this script:
+*   global nhis_pre2019_years "none"
+*   global nhis_post2019_years "2024"
+*
+*   global nhis_pre2019_years "2017 2018"
+*   global nhis_post2019_years "none"
+*
+*   global nhis_pre2019_years "2004 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2017 2018"
+*   global nhis_post2019_years "2019 2020 2021 2022 2023 2024"
+*
+*   global nhis_extra_keep_vars "region"
+*   global nhis_extra_var_families `" "marital_user:r_maritl marital_a" "'
 *
 * --- Post-2019 years (redesigned, CSV format) ---
-local post2019_years "2019 2020 2021 2022 2023 2024"
+local post2019_years "2023 2024"
 if "$nhis_post2019_years" != "" {
     local post2019_years "$nhis_post2019_years"
 }
@@ -71,7 +84,7 @@ if inlist(lower(trim("`post2019_years'")), "none", "skip", ".") {
 
 * --- Pre-2019 years ---------------------------------------------------------
 * Pre-2019 years require .DAT files + CDC do-files in each year folder.
-local pre2019_years "2004 2005 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2017 2018"
+local pre2019_years ""
 if "$nhis_pre2019_years" != "" {
     local pre2019_years "$nhis_pre2019_years"
 }
@@ -717,7 +730,15 @@ foreach y of local post2019_years {
     }
 
     display as text "  Importing `csv_file'..."
+    * Stata's delimited-text importer reads the annual CSV before the script
+    * drops unused columns. Processing and saving one year at a time still
+    * prevents a full multi-year, full-column stack from accumulating in RAM.
     import delimited using "`csv_file'", clear varnames(1) case(lower)
+
+    * CDC renamed these post-redesign fields in 2021. Keep one stable starter
+    * name across all post-2019 years.
+    capture rename educp_a   educ_a
+    capture rename citznstp_a citizenp_a
 
     * Add survey year if not already present
     capture confirm variable srvy_yr
@@ -1015,6 +1036,8 @@ foreach y of local post2019_years {
         continue
     }
 
+    * As for adults, the annual CSV is imported before unused columns are
+    * dropped; the append step uses only the reduced yearly files.
     import delimited using "`csv_file'", clear varnames(1) case(lower)
     capture confirm variable srvy_yr
     if _rc != 0 gen srvy_yr = `y'

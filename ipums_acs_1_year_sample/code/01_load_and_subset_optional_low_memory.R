@@ -137,8 +137,8 @@ make_year_label <- function(years) {
 # ============================================================================
 # USER SETTINGS
 # ============================================================================
-# This script is optional. Most users should keep using 01_load_and_subset.R.
-# Use this version if loading many ACS years exhausts RAM on your machine.
+# Recommended for most student projects. Use 01_load_and_subset.R only when the
+# project needs a broad raw-variable surface beyond the starter and extras.
 #
 # What this script does:
 #   1. Reads one yearly ACS file at a time

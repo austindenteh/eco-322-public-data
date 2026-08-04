@@ -116,9 +116,9 @@ These scripts load one yearly ACS file at a time, append the selected years, cre
 - Stata writes `output/acs_working.dta`
 - R writes `output/acs_working.rds` and `output/acs_working_from_r.dta`
 
-**Optional low-memory yearly workflow**
+**Recommended low-memory yearly workflow**
 
-Use this if you want many ACS years and the full-column yearly workflow is still too large for your machine. It expects yearly files named `data/raw/acs_YYYY.dta`.
+For most student projects, begin here. Use the full-column loader only when the project needs a broad raw-variable surface beyond the starter and requested extras. The low-memory workflow expects yearly files named `data/raw/acs_YYYY.dta`.
 
 Set either `first_year` / `last_year` or an explicit `years_to_load` list at the top of the optional script.
 
@@ -135,11 +135,13 @@ source("code/01_load_and_subset_optional_low_memory.R")
 
 These scripts load one yearly ACS file at a time, keep only the raw columns needed by `02_clean_demographics.*`, save temporary yearly files, and then build the usual working dataset.
 
+For an individual project, edit the visible `USER SETTINGS` block before running. For example, choose `years_to_load <- c(2019, 2021, 2024)` and `extra_keep_vars <- c("ageimmig", "english")` in R, or the matching `local years_to_load` and `local extra_keep_vars` settings in Stata.
+
 - Stata writes `output/acs_working.dta`
 - R writes `output/acs_working.rds`
 - R can also write `output/acs_working_from_r.dta` if `write_dta_export <- TRUE`
 
-The low-memory workflow reduces import pressure, but the final combined working file still needs to fit once the selected years are appended.
+Both implementations select columns while reading the yearly DTA files. The final combined working file still needs to fit once the selected years are appended.
 
 ### Step 3: Clean and Analyze
 

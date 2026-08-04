@@ -115,9 +115,9 @@ Stata saves the working dataset to `output/yrbs_combined.dta`. R saves `output/y
 
 The State default is intentional: the public-use National YRBS sample is useful for national prevalence estimates, but it does not include state identifiers. For state-level policy or cross-state work, use the State sample.
 
-### Optional Low-Memory Load
+### Recommended Low-Memory Load
 
-If you only need selected years, site codes, site types, or variables, use the optional low-memory `01` script instead of the standard `01` script:
+For most student projects, use the low-memory `01` script instead of first building the full combined file. It lets each project select years, site codes, site types, states, and variables:
 
 **Stata:**
 ```stata
@@ -129,7 +129,7 @@ do code/01_load_and_prepare_optional_low_memory.do
 source("code/01_load_and_prepare_optional_low_memory.R")
 ```
 
-The optional scripts read the 9 raw CDC SAS files directly, so they do **not** require `data/raw/sadc_2023_combined_all.dta` to exist. They also default to State rows, but near the top of each optional script you can further filter settings such as:
+The low-memory scripts read selected columns from the 9 raw CDC SAS files directly, so they do **not** require `data/raw/sadc_2023_combined_all.dta` to exist. Year, site-type, and state filters are then applied to those reduced columns. They default to State rows, but near the top of each script you can further filter settings such as:
 
 ```r
 years_to_keep <- c(2019, 2021, 2023)

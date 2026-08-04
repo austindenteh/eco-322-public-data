@@ -106,26 +106,34 @@ nhis_root <- resolve_nhis_root("01_load_and_append_optional_low_memory.R")
 cat(paste0("Using NHIS root: ", nhis_root, "\n"))
 
 if (!exists("nhis_output_dir", inherits = TRUE)) {
-  nhis_output_dir <- file.path(nhis_root, "output")
+  output_env <- Sys.getenv("NHIS_OUTPUT_DIR", unset = "")
+  nhis_output_dir <- if (nzchar(output_env)) output_env else file.path(nhis_root, "output")
 }
 out_dir <- nhis_output_dir
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
-# --- USER SETTINGS: years and exports -------------------------------------
-# Low-memory defaults to the full reviewed NHIS span. Edit these vectors if you
-# want a smaller build.
+# --- USER SETTINGS: years, extras, and exports -----------------------------
+# The teaching-friendly default is the two most recent reviewed years. Start
+# here, confirm that the requested variables work, and then expand the range.
+#
+# Examples to set before sourcing this script:
+#   pre2019_years <- integer(0); post2019_years <- 2024L
+#   pre2019_years <- 2017:2018; post2019_years <- integer(0)
+#   pre2019_years <- 2004:2018; post2019_years <- 2019:2024
+#   extra_vars <- c("region")
+#   extra_var_families <- list(example_concept = c("old_name", "new_name"))
 # --- Post-2019 years (redesigned, CSV format) ---
 # These years use simple CSV files. No special setup needed.
 # The script auto-detects which year folders exist and skips missing ones.
 if (!exists("post2019_years", inherits = TRUE)) {
-  post2019_years <- 2019:2024
+  post2019_years <- 2023:2024
 }
 
 # --- Pre-2019 years ---------------------------------------------------------
 # Pre-2019 years require .dta component files. The Stata low-memory loader can
 # create/reuse them from the downloaded CDC files.
 if (!exists("pre2019_years", inherits = TRUE)) {
-  pre2019_years <- 2004:2018
+  pre2019_years <- integer(0)
 }
 
 # NOTE: Years 2015-2018 follow the pre-2019 design but some components
@@ -196,6 +204,107 @@ child_starter_vars <- c(
   "notcov_c", "medicare_c", "medicaid_c", "private_c", "phstat_c",
   "wtfa_c", "pstrat", "ppsu"
 )
+
+post2019_adult_alias_vars <- c("educp_a", "citznstp_a")
+
+harmonize_post2019_adult_names <- function(df) {
+  rename_map <- c(
+    "educp_a" = "educ_a",
+    "citznstp_a" = "citizenp_a"
+  )
+  for (old_name in names(rename_map)) {
+    new_name <- unname(rename_map[[old_name]])
+    if (old_name %in% names(df) && !(new_name %in% names(df))) {
+      names(df)[names(df) == old_name] <- new_name
+    }
+  }
+  df
+}
+
+# Raw pre-2019 names needed to construct the starter variables above. These
+# include merge keys, redesign aliases, and variables renamed later in this
+# script. Requested extras and alias-family members are added below.
+pre2019_common_raw_vars <- c(
+  "srvy_yr", "hhx", "fmx", "fpx",
+  "age_p", "sex", "origin_i", "racerpi2", "citizenp",
+  "plborn", "regionbr", "geobrth", "frrp",
+  "stratum", "psu", "strat_p", "psu_p", "wtfa"
+)
+
+pre2019_adult_raw_vars <- c(
+  pre2019_common_raw_vars,
+  "educ1", "notcov", "medicare", "medicaid", "private", "schip",
+  "single", "ihs", "hinotyr", "phstat", "pdmed12m", "pnmed12m",
+  "hypev", "chlev", "chdev", "angev", "miev", "strev", "asev",
+  "canev", "dibev", "copdev", "arthev", "depev", "anxev",
+  "phqcat", "gadcat", "bmicat",
+  "othergov", "othgov", "otherpub", "othpub", "military", "milcare",
+  "phospyr", "phospyr2", "ffdstyn", "fsnap",
+  "rat_cat", "rat_cat2", "rat_cat4", "incgrp", "incgrp2", "incgrp4",
+  "ernyr_p", "wtfa_sa"
+)
+
+pre2019_child_raw_vars <- c(
+  pre2019_common_raw_vars,
+  "notcov", "medicare", "medicaid", "private", "schip", "phstat",
+  "wtfa_sc"
+)
+
+requested_raw_vars <- function(sample_type) {
+  raw_core <- if (sample_type == "adult") {
+    pre2019_adult_raw_vars
+  } else {
+    pre2019_child_raw_vars
+  }
+  starter_vars <- if (sample_type == "adult") adult_starter_vars else child_starter_vars
+  normalize_var_names(c(
+    raw_core, starter_vars, extra_vars, family_alias_vars,
+    names(extra_var_families)
+  ))
+}
+
+read_dta_selected <- function(path, requested_vars, label) {
+  header <- read_dta(path, n_max = 0)
+  header_names <- names(header)
+  header_lookup <- setNames(header_names, tolower(header_names))
+  requested_vars <- normalize_var_names(requested_vars)
+  selected_lower <- intersect(requested_vars, names(header_lookup))
+  selected_names <- unname(header_lookup[selected_lower])
+
+  if (length(selected_names) == 0) {
+    stop("No requested columns were found in ", path, ".", call. = FALSE)
+  }
+
+  cat(sprintf(
+    "  %s: reading %d of %d raw columns\n",
+    label, length(selected_names), length(header_names)
+  ))
+  read_dta(path, col_select = tidyselect::all_of(selected_names))
+}
+
+read_csv_selected <- function(path, requested_vars, label) {
+  header <- read_csv(path, n_max = 0, show_col_types = FALSE)
+  header_names <- names(header)
+  header_lookup <- setNames(header_names, tolower(header_names))
+  requested_vars <- normalize_var_names(requested_vars)
+  selected_lower <- intersect(requested_vars, names(header_lookup))
+  selected_names <- unname(header_lookup[selected_lower])
+
+  if (length(selected_names) == 0) {
+    stop("No requested columns were found in ", path, ".", call. = FALSE)
+  }
+
+  cat(sprintf(
+    "  %s: reading %d of %d raw columns\n",
+    label, length(selected_names), length(header_names)
+  ))
+  read_csv(
+    path,
+    col_select = tidyselect::all_of(selected_names),
+    col_types = cols(.default = "c"),
+    show_col_types = FALSE
+  )
+}
 
 keep_starter_columns <- function(df, sample_type) {
   if (!keep_starter_vars_only) return(df)
@@ -344,8 +453,10 @@ load_pre2019_year <- function(year, sample_type = "adult") {
     return(NULL)
   }
 
+  requested_vars <- requested_raw_vars(sample_type)
+
   # --- Load person-level file ---
-  person <- read_dta(person_file)
+  person <- read_dta_selected(person_file, requested_vars, "personsx")
   names(person) <- tolower(names(person))
 
   if (!"srvy_yr" %in% names(person)) person$srvy_yr <- year
@@ -354,7 +465,7 @@ load_pre2019_year <- function(year, sample_type = "adult") {
   # --- Merge familyxx ---
   fam_file <- file.path(ydir, "familyxx.dta")
   if (file.exists(fam_file)) {
-    family <- read_dta(fam_file)
+    family <- read_dta_selected(fam_file, requested_vars, "familyxx")
     names(family) <- tolower(names(family))
     family <- normalize_pre2019_keys(family)
     person <- person %>%
@@ -367,7 +478,7 @@ load_pre2019_year <- function(year, sample_type = "adult") {
   # --- Merge househld ---
   hh_file <- file.path(ydir, "househld.dta")
   if (file.exists(hh_file)) {
-    house <- read_dta(hh_file)
+    house <- read_dta_selected(hh_file, requested_vars, "househld")
     names(house) <- tolower(names(house))
     house <- normalize_pre2019_keys(house)
     person <- person %>%
@@ -378,7 +489,7 @@ load_pre2019_year <- function(year, sample_type = "adult") {
   }
 
   # --- Merge sample file (inner join: keep only sample persons) ---
-  sample_data <- read_dta(sample_file)
+  sample_data <- read_dta_selected(sample_file, requested_vars, basename(sample_file))
   names(sample_data) <- tolower(names(sample_data))
   sample_data <- normalize_pre2019_keys(sample_data)
 
@@ -624,8 +735,16 @@ for (y in post2019_years) {
     unzip(zip_file, exdir = ydir, overwrite = TRUE)
   }
   if (file.exists(csv_file)) {
-    df <- read_csv(csv_file, col_types = cols(.default = "c"), show_col_types = FALSE)
+    df <- read_csv_selected(
+      csv_file,
+      unique(c(
+        adult_starter_vars, post2019_adult_alias_vars,
+        extra_vars, family_alias_vars, names(extra_var_families)
+      )),
+      "Adult"
+    )
     names(df) <- tolower(names(df))
+    df <- harmonize_post2019_adult_names(df)
     df <- type_convert(df, col_types = cols(.default = col_guess()))
     if (!"srvy_yr" %in% names(df)) df$srvy_yr <- y
     df$era_post2019 <- 1L
@@ -643,7 +762,11 @@ for (y in post2019_years) {
     unzip(zip_file, exdir = ydir, overwrite = TRUE)
   }
   if (file.exists(csv_file)) {
-    df <- read_csv(csv_file, col_types = cols(.default = "c"), show_col_types = FALSE)
+    df <- read_csv_selected(
+      csv_file,
+      unique(c(child_starter_vars, extra_vars, family_alias_vars, names(extra_var_families))),
+      "Child"
+    )
     names(df) <- tolower(names(df))
     df <- type_convert(df, col_types = cols(.default = col_guess()))
     if (!"srvy_yr" %in% names(df)) df$srvy_yr <- y
